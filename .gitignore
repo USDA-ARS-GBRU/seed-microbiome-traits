@@ -1,0 +1,24 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# Slurm output files 
+slurm-*.out
+
+# BRMS model fits
+*.rds
+
+# Stan executables
+*.exe
+
+# Rendered .Rmd notebooks
+*.html
+*.pdf
+
+# Figure directory
+figs/
+
+# Symlink to data and project directories
+data
+project
