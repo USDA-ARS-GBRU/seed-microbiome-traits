@@ -4,8 +4,8 @@ library(data.table)
 library(cmdstanr)
 
 # Import data. Corrected labels, data accessed from g drive 2023-06-06
-abundance <- fread('data/foxx/data/16S_abundance.csv')
-traits <- fread('data/foxx/data/seedling_data_updated.csv')
+abundance <- fread('project/data/16S_abundance.csv')
+traits <- fread('project/data/seedling_data_updated.csv')
 
 # Here, we will try to fit a "toy model" using a few haphazardly selected microbial taxa abundances, and one continuous plant trait (rooting depth) as the response variable
 # Currently, for simplicity I will convert the abundance matrix to a presence absence matrix. 
