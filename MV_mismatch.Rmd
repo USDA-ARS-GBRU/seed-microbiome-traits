@@ -1,0 +1,157 @@
+---
+title: "Multivariate mismatched seedling traits vs. seed microbiome"
+author: "Quentin D. Read"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    code_folding: show
+---
+
+```{css, echo = FALSE}
+.gt_table {
+    margin-bottom: 20px;
+    margin-top: 20px;
+}
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Summary
+
+# Setup
+
+```{r load packages}
+library(data.table)
+library(brms)
+library(ggplot2)
+library(purrr)
+library(keras)
+library(caret)
+library(ALDEx2)
+
+options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
+use_condaenv('r-tensorflow')
+
+# Import data. Corrected labels, data accessed from g drive 2023-06-06
+abundance <- fread('project/data/16S_abundance.csv')
+traits <- fread('project/data/seedling_data_updated.csv')
+```
+
+
+```{r ggplot theme, include = FALSE}
+windowsFonts(`fgbook` = windowsFont('Franklin Gothic Book'))
+theme_set(
+  theme_bw(base_family = 'fgbook') + 
+    theme(panel.grid = element_blank(),
+          strip.background = element_blank())
+)
+
+options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
+```
+
+# Multivariate trait model
+
+We will use the following traits: days to germination, leaf height, rooting depth, root tip count, number of primary roots, and number of leaves. 
+
+First, eliminate any individuals that have no traits recorded. Also, there are some individuals that only have one trait recorded: days to germination. These will not contribute very much to the information about the maternal plant either, so we will remove them too. 
+
+```{r}
+mv_traits <- c("days_to_germinate", "leaf_height_cm", "rooting_depth_cm", "root_tip_count", "no_primary_roots", "no_leaves")
+
+traits_std <- traits[apply(traits[, lapply(.SD, \(x) !is.na(x)), .SDcols = mv_traits], 1, sum) > 1, 
+                     mget(c('maternal_plant_code', 'country_origin', mv_traits))]
+```
+
+We are left with 50 seedlings. Here are the ones that have any missing values. There are only 3, which are missing days to germination. Because there are so few, we will simply impute those missing values using the median from their maternal plant. This is acceptable to do with such a small number of missing values.
+
+```{r}
+traits_std[!complete.cases(traits_std)]
+```
+
+```{r}
+traits_std[, days_to_germinate := ifelse(is.na(days_to_germinate), median(days_to_germinate, na.rm = TRUE), days_to_germinate),
+           by = .(maternal_plant_code)]
+```
+
+
+Standardize the traits (z-transformation) so that they are in common units.
+
+```{r}
+traits_std[, (mv_traits) := lapply(.SD, scale), .SDcols = mv_traits]
+```
+
+Fit the multivariate linear regression model with population as fixed effect and random intercept for maternal plant. There will be 4000 posterior samples. This model takes about 2 minutes to compile and run. It is basically six regressions put together except that residual correlations between each pair of traits are also estimated.
+
+```{r}
+mv_trait_fit <- brm(
+  mvbind(days_to_germinate, leaf_height_cm, rooting_depth_cm, root_tip_count, no_primary_roots, no_leaves) ~ country_origin + (1 | maternal_plant_code),
+  data = traits_std, 
+  chains = 4, iter = 2000, warmup = 1000, seed = 825,
+  file = 'project/fits/mv_trait_fit'
+)
+```
+
+Extract the posterior distribution of the BLUPs for each of the 9 maternal plants (plant J had no offspring with traits). If you add the fixed and random effect together you get a predicted value for each of the 4000 posterior samples for each maternal plant for each of the 6 traits, so this is a 4000x9x6 array.
+
+```{r}
+pred_grid <- unique(traits_std[, .(maternal_plant_code, country_origin)])
+
+trait_post_blups <- predict(mv_trait_fit, newdata = pred_grid, summary = FALSE)
+```
+
+# Use aggregated microbiome to predict traits
+
+Because I still have not worked out how to extract the needed samples from the output of Aldex2, I am still taking the quick and dirty method of using the aggregated microbiome (sums of taxa counts) of all the offspring of each maternal plant to represent the maternal microbiome. If we do not find a satisfactory result using this method, there will be little or no benefit to using the Aldex2 method. However, it will still be a good idea to figure out that method for the future so that it can be used in other cases. I will do that later.
+
+This will be a reasonably good estimate of the "mean" microbiome from each maternal plant but will not account for the uncertainty resulting from us being only able to obliquely observe the maternal microbiome through sampling the microbiomes of its offspring.
+
+Convert abundance data to longform and then create identifier columns for sample ID and maternal plant code. Sum the counts and then convert to a wideform with taxa as columns.
+
+```{r}
+abundance_long <- melt(abundance, id.vars = 'V1') 
+abundance_long[, maternal_plant_code := substr(variable, 3, 3)]
+abundance_long[, sampleID := substr(variable, 1, 2)]
+
+abundance_wide <- dcast(abundance_long,  maternal_plant_code + sampleID ~ V1)
+
+abundance_agg <- abundance_long[, .(value = sum(value)), by = .(V1, maternal_plant_code)]
+abundance_agg_wide <- dcast(abundance_agg,  maternal_plant_code ~ V1)
+```
+
+Subset the aggregated data to get rid of maternal plant J which does not have any offspring trait data. The result is a 9x1433 matrix.
+
+```{r}
+abundance_agg_forfitting <- abundance_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code]
+```
+
+Create a model.
+
+Some of this code was adapted from [this post](https://www.datatechnotes.com/2020/01/multi-output-regression-example-with.html).
+
+Define function to fit a multi-output neural network model for a single posterior sample. Due to the small sample size, we will do leave-one-out cross-validation on the model (use 8 of 9 maternal microbiomes to fit the model and predict the 9th, repeat until all 9 are predicted). The `keras` package is used to fit the models (so Python code is being called behind the scenes). 
+
+> NOTE: I tried for quite a while to configure R and Python to communicate on my own Windows PC but it did not work. So this part of the model fitting was done on the SciNet cluster.
+
+```{r}
+fit_multioutput_nnet <- function(y) {
+  y <- data.table(maternal_plant_code = pred_grid$maternal_plant_code, y = y)
+  dt <- y[abundance_agg_forfitting, on = .(maternal_plant_code)]
+  dt[, maternal_plant_code := NULL]
+  setnames(dt, c('y', paste0('otu', 1:(ncol(dt)-1)))) # Must do this because the OTU names are not valid column names.
+  rf <- ranger(y ~ ., data = dt, min.node.size = 3, num.trees = 1000)
+}
+```
+
+Apply the function to a random subset of 100 posterior samples.
+
+```{r}
+set.seed(1104)
+trait_post_blups_subsample <- trait_post_blups[sample(1:dim(trait_post_blups)[1], 100), , ]
+```
+

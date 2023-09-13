@@ -24,6 +24,12 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 # Summary
 
+Here, I took individual seed traits, fit a mixed model with country of origin as a fixed effect and maternal plant as a random intercept to each trait, then extracted the posterior predictions for each maternal plant from the models. Next, I aggregated the seed microbiomes from each maternal plant by adding the counts together. Then, for each of 100 posterior samples for each trait, I fit a random forest model using the aggregated microbiomes of each maternal plant to predict the modeled trait value for the maternal plant.
+
+The random forest models performed poorly and do not predict trait given maternal microbiome. 
+
+Two potential ways to extend this are (1) to make it a multivariate approach instead of a series of univariate models. This would involve replacing the univariate mixed models with a multivariate response, and replacing the series of random forests with a multioutput neural network or something similar. This is unlikely to yield a different result in the case of this dataset but may be worth working on for other cases. The other extension is (2) to use Aldex2 or some other approach to get a distribution of estimates for the aggregated maternal seed microbiome, instead of just adding up the offsprings' microbiomes. Again, this is unlikely to be useful here but might be for future cases.
+
 # Setup
 
 ```{r load packages}
@@ -52,20 +58,55 @@ theme_set(
 
 # Trait model
 
-Fit a very simple linear mixed model to a single trait (rooting depth in cm). All default priors are used.
+Fit a very simple linear mixed model to each trait separately. All default priors are used. Log transformation is used for the height and depth traits. (Log+0.1 is used for leaf height due to one having a zero value). For the count traits and days to germination, a GLMM is fit with Poisson response distribution. 
+
+There is relatively little variation in the number of primary roots (42 of 50 had 1 root) and the number of leaves (40 of 50 had 1 leaf). Thus it seems unlikely to be fruitful to use seed microbiome to predict these, but they are included for completeness.
+
+> NOTE: I am also working on some efforts to make this a multivariate model using multivariate regression followed by a multioutput neural network. However, I do not feel that it is providing much of a benefit in the case of this dataset. Thus, I am not going to show it here, just the individual univariate models. But it may be worth using the multivariate approach in other cases.
 
 ```{r}
-rdepthfit <- brm(rooting_depth_cm ~ country_origin + (1 | maternal_plant_code), data = traits,
+rdepthfit <- brm(log(rooting_depth_cm) ~ country_origin + (1 | maternal_plant_code), data = traits,
+                 prior = c(prior(normal(0, 3), class = b)),
                  chains = 4, iter = 2000, warmup = 1000, seed = 836,
                  file = 'project/fits/rdepthfit')
+
+lheightfit <- brm(log(leaf_height_cm + 0.1) ~ country_origin + (1 | maternal_plant_code), data = traits,
+                  prior = c(prior(normal(0, 3), class = b)),
+                  chains = 4, iter = 2000, warmup = 1000, seed = 1340,
+                  file = 'project/fits/lheightfit')
+
+rtipcountfit <- brm(root_tip_count ~ country_origin + (1 | maternal_plant_code), data = traits, family = poisson,
+                    prior = c(prior(normal(0, 1), class = b)),
+                    chains = 4, iter = 3000, warmup = 2000, seed = 1349,
+                    control = list(adapt_delta = 0.95),
+                    file = 'project/fits/rtipcountfit')
+
+nprimrootfit <- brm(no_primary_roots ~ country_origin + (1 | maternal_plant_code), data = traits, family = poisson,
+                    prior = c(prior(normal(0, 1), class = b)),
+                    chains = 4, iter = 3000, warmup = 2000, seed = 1351,
+                    control = list(adapt_delta = 0.95),
+                    file = 'project/fits/nprimrootfit')
+
+nleaffit <- brm(no_leaves ~ country_origin + (1 | maternal_plant_code), data = traits, family = poisson,
+                prior = c(prior(normal(0, 1), class = b)),
+                chains = 4, iter = 3000, warmup = 2000, seed = 1408,
+                control = list(adapt_delta = 0.95),
+                file = 'project/fits/nleaffit')
+
+daygermfit <- brm(days_to_germinate ~ country_origin + (1 | maternal_plant_code), data = traits, family = poisson,
+                  prior = c(prior(normal(0, 3), class = b)),
+                  chains = 4, iter = 3000, warmup = 2000, seed = 1409,
+                  file = 'project/fits/daygermfit')
 ```
 
-Extract the posterior distribution of the BLUPs for each of the 9 maternal plants (rooting depth data was missing for the 10th plant). If you add the fixed and random effect together you get a predicted value for each maternal plant for each of the 4000 posterior samples, so this is a 4000x9 matrix.
+Extract the posterior distribution of the BLUPs for each of the maternal plants that have data (9 for all of the traits). If you add the fixed and random effect together you get a predicted value for each maternal plant for each of the 4000 posterior samples, so the posterior predictions for each trait are a 4000x9 matrix.
 
 ```{r}
-pred_grid <- unique(traits[!is.na(rooting_depth_cm), .(maternal_plant_code, country_origin)])
+trait_fits <- list(rdepthfit, lheightfit, rtipcountfit, nprimrootfit, nleaffit, daygermfit)
+trait_names <- c('rooting_depth_cm', 'leaf_height_cm', 'root_tip_count', 'no_primary_roots', 'no_leaves', 'days_to_germinate')
 
-rdepth_post_blups <- predict(rdepthfit, newdata = pred_grid, summary = FALSE)
+pred_grids <- map(trait_names, ~ unique(traits[!is.na(get(.)), .(maternal_plant_code, country_origin)]))
+trait_post_blups <- map2(trait_fits, pred_grids, ~ predict(.x, newdata = .y, summary = FALSE))
 ```
 
 # Option 1: use aggregated microbiome to predict traits
@@ -85,16 +126,16 @@ abundance_agg <- abundance_long[, .(value = sum(value)), by = .(V1, maternal_pla
 abundance_agg_wide <- dcast(abundance_agg,  maternal_plant_code ~ V1)
 ```
 
-Subset the aggregated data to get rid of maternal plant J which does not have rooting depth data.
+Subset the aggregated data to get rid of maternal plant J which does not have data for any of the traits.
 
 ```{r}
-abundance_agg_forfitting <- abundance_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code]
+abundance_agg_forfitting <- abundance_agg_wide[maternal_plant_code %in% pred_grids[[1]]$maternal_plant_code]
 ```
 
 Define function to fit the random forest for a single posterior sample. 
 
 ```{r}
-fit_rf <- function(y) {
+fit_rf <- function(y, pred_grid) {
   y <- data.table(maternal_plant_code = pred_grid$maternal_plant_code, y = y)
   dt <- y[abundance_agg_forfitting, on = .(maternal_plant_code)]
   dt[, maternal_plant_code := NULL]
@@ -109,28 +150,28 @@ Apply the function to a random subset of 100 of the posterior samples.
 
 ```{r}
 set.seed(1104)
-rdepth_post_blups_subsample <- rdepth_post_blups[sample(1:nrow(rdepth_post_blups), 100), ]
-
-post_rf_fits <- apply(rdepth_post_blups_subsample, 1, fit_rf)
+trait_post_blups_subsample <- map(trait_post_blups, ~ .[sample(1:nrow(.), 100), ])
+post_rf_fits <- map2(trait_post_blups_subsample, pred_grids, ~ apply(.x, 1, fit_rf, pred_grid = .y))
 ```
 
 Examine the out-of-bag R-squared values for all 100 posterior samples.
 
 ```{r}
-rsqs <- map_dbl(post_rf_fits, 'r.squared')
-ggplot(data.frame(rsq = rsqs), aes(x = rsq)) +
+rsqs <- map2(post_rf_fits, trait_names, ~ data.frame(trait = .y, rsquared = map_dbl(.x, 'r.squared'))) |> list_rbind()
+ggplot(rsqs, aes(x = rsquared)) +
   geom_histogram() +
-  geom_vline(xintercept = mean(rsqs), color = 'red')
+  stat_summary(aes(y = rsquared, x = 0.1, xintercept = stat(y)), geom = 'vline', fun.y = 'median', color = 'red') +
+  facet_wrap(~ trait) +
+  scale_y_continuous(name = 'count', expand = expansion(add = c(0, 1)), breaks = c(0, 4, 8, 12)) +
+  labs(x = 'out-of-bag R^2^') +
+  theme(axis.title.x = ggtext::element_markdown())
 ```
 
 It is very poor performance: almost all the out of bag r-squared values are <0 and the mean is about -0.2, indicating that the model using microbiome to predict traits (after adjusting for maternal plant identity and country of origin using the linear mixed model) is even worse than just predicting that every individual has the average trait.
 
 # Option 2: use distribution from Aldex2 model to predict traits
 
-Here we generate 1000 MC samples, later downsampled to 100 for demonstration purposes. This can be increased. It may be possible to parallelize. A test is not done, just the step where Monte Carlo samples of the Dirichlet distribution from each sample are generated ([part 4.1 in the vignette](https://bioconductor.org/packages/release/bioc/vignettes/ALDEx2/inst/doc/ALDEx2_vignette.html#41_The_aldexclr_module)).
+See the vignette especially [part 4.1 in the vignette](https://bioconductor.org/packages/release/bioc/vignettes/ALDEx2/inst/doc/ALDEx2_vignette.html#41_The_aldexclr_module). As far as I can tell Aldex2 is generating samples from an underlying distribution for each sample though we really want it to generate samples from an underlying distribution for each maternal plant, with samples grouped together. So far, I have been unable to get a better result. For now we are just using the aggregated microbiome.
 
-```{r}
-aldexsamples <- aldex.clr(abundance[, -1], abundance_wide$maternal_plant_code, mc.samples = 1000)
-aldexeff <- aldex.effect(aldexsamples)
-```
+
 
