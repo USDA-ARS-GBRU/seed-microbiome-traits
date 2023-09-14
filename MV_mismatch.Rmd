@@ -32,11 +32,8 @@ library(brms)
 library(ggplot2)
 library(purrr)
 library(keras)
-library(caret)
-library(ALDEx2)
 
 options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
-use_condaenv('r-tensorflow')
 
 # Import data. Corrected labels, data accessed from g drive 2023-06-06
 abundance <- fread('project/data/16S_abundance.csv')
@@ -51,8 +48,6 @@ theme_set(
     theme(panel.grid = element_blank(),
           strip.background = element_blank())
 )
-
-options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
 ```
 
 # Multivariate trait model
@@ -79,6 +74,13 @@ traits_std[, days_to_germinate := ifelse(is.na(days_to_germinate), median(days_t
            by = .(maternal_plant_code)]
 ```
 
+Transform all variables with a log transformation. Use log(x+1) for leaf height and number of leaves because there are a few zero values.
+
+```{r}
+traits_std[, leaf_height_cm := leaf_height_cm + 1]
+traits_std[, no_leaves := no_leaves + 1]
+traits_std[, (mv_traits) := lapply(.SD, log), .SDcols = mv_traits]
+```
 
 Standardize the traits (z-transformation) so that they are in common units.
 
@@ -105,11 +107,17 @@ pred_grid <- unique(traits_std[, .(maternal_plant_code, country_origin)])
 trait_post_blups <- predict(mv_trait_fit, newdata = pred_grid, summary = FALSE)
 ```
 
+Reduce the number of posterior samples to 100 for easier calculation. Later if it becomes important to do so we can remove this step and parallelize the computations. We are left with a 100x9x6 array.
+
+```{r}
+set.seed(1104)
+n_samples <- 100
+trait_post_blups_subsample <- trait_post_blups[sample(1:dim(trait_post_blups)[1], n_samples), , ]
+```
+
 # Use aggregated microbiome to predict traits
 
-Because I still have not worked out how to extract the needed samples from the output of Aldex2, I am still taking the quick and dirty method of using the aggregated microbiome (sums of taxa counts) of all the offspring of each maternal plant to represent the maternal microbiome. If we do not find a satisfactory result using this method, there will be little or no benefit to using the Aldex2 method. However, it will still be a good idea to figure out that method for the future so that it can be used in other cases. I will do that later.
-
-This will be a reasonably good estimate of the "mean" microbiome from each maternal plant but will not account for the uncertainty resulting from us being only able to obliquely observe the maternal microbiome through sampling the microbiomes of its offspring.
+This uses the quick and dirty method of using the aggregated microbiome (sums of taxa counts) of all the offspring of each maternal plant to represent the maternal microbiome. This will be a reasonably good estimate of the "mean" microbiome from each maternal plant but will not account for the uncertainty resulting from us being only able to obliquely observe the maternal microbiome through sampling the microbiomes of its offspring. Later we may be able to come up with a method, using Aldex2 or some other means, to account for this uncertainty.
 
 Convert abundance data to longform and then create identifier columns for sample ID and maternal plant code. Sum the counts and then convert to a wideform with taxa as columns.
 
@@ -124,34 +132,37 @@ abundance_agg <- abundance_long[, .(value = sum(value)), by = .(V1, maternal_pla
 abundance_agg_wide <- dcast(abundance_agg,  maternal_plant_code ~ V1)
 ```
 
-Subset the aggregated data to get rid of maternal plant J which does not have any offspring trait data. The result is a 9x1433 matrix.
+Subset the aggregated data to get rid of maternal plant J which does not have any offspring trait data. The result, after removing column 1 (maternal plant identifier) is a 9x1432 matrix.
 
 ```{r}
-abundance_agg_forfitting <- abundance_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code]
+abundance_agg_forfitting <- abundance_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code, -1]
 ```
 
-Create a model.
+## Multi-output neural network model
 
-Some of this code was adapted from [this post](https://www.datatechnotes.com/2020/01/multi-output-regression-example-with.html).
+Some of the following code was adapted from [this post](https://www.datatechnotes.com/2020/01/multi-output-regression-example-with.html). First, we need to create a Keras model. Here it is a neural network with an input layer, an output layer, and one layer in between. The inputs are vectors of length 1432 (the microbiomes) and the outputs are vectors of length 6 (the traits). The model will be fit using the `keras` package which means that Python code is running behind the scenes, using the `reticulate` package to call Python from within R.
+
+```{r}
+nnetmodel <- keras_model_sequential() |>
+  layer_dense(units = 100, activation = 'relu', input_shape = dim(abundance_agg_forfitting)[2]) |>
+  layer_dense(units = 32, activation = 'relu') |>
+  layer_dense(units = dim(trait_post_blups)[3], activation = 'linear')
+
+# FIXME This does not work.
+nnetmodel |> compile(loss = 'mse', optimizer = 'adam')
+
+summary(model)
+```
 
 Define function to fit a multi-output neural network model for a single posterior sample. Due to the small sample size, we will do leave-one-out cross-validation on the model (use 8 of 9 maternal microbiomes to fit the model and predict the 9th, repeat until all 9 are predicted). The `keras` package is used to fit the models (so Python code is being called behind the scenes). 
 
-> NOTE: I tried for quite a while to configure R and Python to communicate on my own Windows PC but it did not work. So this part of the model fitting was done on the SciNet cluster.
+This function will take one sample from the posterior distribution (a slice from the three dimensional array which is a 9x6 matrix) as input. Within the function we will loop through and fit the model 9 times, to 8 of the matrix rows, and predict the 9th. We return the observed and predicted values in each case.
 
 ```{r}
-fit_multioutput_nnet <- function(y) {
-  y <- data.table(maternal_plant_code = pred_grid$maternal_plant_code, y = y)
-  dt <- y[abundance_agg_forfitting, on = .(maternal_plant_code)]
-  dt[, maternal_plant_code := NULL]
-  setnames(dt, c('y', paste0('otu', 1:(ncol(dt)-1)))) # Must do this because the OTU names are not valid column names.
-  rf <- ranger(y ~ ., data = dt, min.node.size = 3, num.trees = 1000)
+fit_nnet_leaveoneoutcv <- function(post_samples) {
+  # FIXME Fill in function here.
 }
 ```
 
-Apply the function to a random subset of 100 posterior samples.
 
-```{r}
-set.seed(1104)
-trait_post_blups_subsample <- trait_post_blups[sample(1:dim(trait_post_blups)[1], 100), , ]
-```
-
+...continue past here ...

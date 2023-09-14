@@ -146,7 +146,7 @@ fit_rf <- function(y, pred_grid) {
 
 Apply the function to a random subset of 100 of the posterior samples.
 
-> note: It would be easy to parallelize this if it becomes necessary later, to more easily work with more posterior samples.
+> NOTE: It would be easy to parallelize this if it becomes necessary later, to more easily work with more posterior samples.
 
 ```{r}
 set.seed(1104)
