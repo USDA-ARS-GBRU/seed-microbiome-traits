@@ -4,7 +4,7 @@ library(brms)
 library(keras)
 library(data.table)
 
-options(brms.file_refit = 'never')
+options(brms.file_refit = 'on_change', brms.backend = 'cmdstanr', mc.cores = 4)
 
 abundance <- fread('project/data/16S_abundance.csv')
 traits <- fread('project/data/seedling_data_updated.csv')
@@ -16,6 +16,10 @@ traits_std <- traits[apply(traits[, lapply(.SD, \(x) !is.na(x)), .SDcols = mv_tr
 
 traits_std[, days_to_germinate := ifelse(is.na(days_to_germinate), median(days_to_germinate, na.rm = TRUE), days_to_germinate),
            by = .(maternal_plant_code)]
+
+traits_std[, leaf_height_cm := leaf_height_cm + 1]
+traits_std[, no_leaves := no_leaves + 1]
+traits_std[, (mv_traits) := lapply(.SD, log), .SDcols = mv_traits]
 
 traits_std[, (mv_traits) := lapply(.SD, scale), .SDcols = mv_traits]
 
@@ -46,28 +50,36 @@ n_samples <- 100
 trait_post_blups_subsample <- trait_post_blups[sample(1:dim(trait_post_blups)[1], n_samples), , ]
 
 
-model <- keras_model_sequential() |>
-  layer_dense(units = 100, activation = 'relu', input_shape = dim(abundance_agg_forfitting)[2]) |>
-  layer_dense(units = 32, activation = 'relu') |>
-  layer_dense(units = dim(trait_post_blups)[3], activation = 'linear')
-
-compile(model, loss = 'mse', optimizer = 'adam')
-
 # For each of 100 MC samples, do leave-one-out cross-validation.
+# Model must be defined and compiled within each fold so that it does not save info from previous ones.
+results <- list()
 for (i in 1:n_samples) {
   for (j in 1:nrow(pred_grid)) {
+    # Define and compile model.
+    nnetmodel <- keras_model_sequential() |>
+      layer_dense(units = 100, activation = 'relu', input_shape = dim(abundance_agg_forfitting)[2]) |>
+      layer_dropout(rate = 0.3) |>
+      layer_dense(units = 32, activation = 'relu') |>
+      layer_dropout(rate = 0.3) |>
+      layer_dense(units = dim(trait_post_blups)[3], activation = 'linear')
+    
+    nnetmodel |> compile(loss = 'mse', optimizer = 'adam')
+    
+    # Create train and test split with just a single holdout row and the rest used for fitting.
     ab_train <- abundance_agg_forfitting[-j, ]
     ab_test <- abundance_agg_forfitting[j, , drop = FALSE]
     trait_train <- trait_post_blups_subsample[i, -j, ]
     trait_test <- trait_post_blups_subsample[i, j, , drop = FALSE]
     
-    model |> fit(
-      x = ab_train, y = trait_train, epochs = 100
+    # Fit model and get predictions for the holdout row.
+    nnetmodel |> fit(
+      x = ab_train, y = trait_train, epochs = 1000, verbose = 0
     )
     
-    pred_ij <- predict(model, ab_test)
-    
+    results[[length(results) + 1]] <- data.frame(sample = i, row = j, predict(nnetmodel, ab_test))
+    message('Sample ', i, ' of ', n_samples, 'complete.')
   }
 }
 
-fit(model, abundance_agg_forfitting, tr1, epochs = 100)
+results_df <- do.call(rbind, results)
+fwrite(results_df, 'project/fits/nnet_mv_trait_results.csv')

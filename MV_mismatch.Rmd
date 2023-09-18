@@ -142,16 +142,19 @@ abundance_agg_forfitting <- abundance_agg_wide[maternal_plant_code %in% pred_gri
 
 Some of the following code was adapted from [this post](https://www.datatechnotes.com/2020/01/multi-output-regression-example-with.html). First, we need to create a Keras model. Here it is a neural network with an input layer, an output layer, and one layer in between. The inputs are vectors of length 1432 (the microbiomes) and the outputs are vectors of length 6 (the traits). The model will be fit using the `keras` package which means that Python code is running behind the scenes, using the `reticulate` package to call Python from within R.
 
+> NOTE: So far, I haven't been able to get the R keras package to work on my local Windows machine. I had to run this code on the SciNet cluster which has a Linux OS. Everything works fine there. Regardless of whether I can eventually configure it to run on Windows, if we do end up scaling this up to a larger dataset it is probably going to have to be run on an HPC anyway.
+
 ```{r}
 nnetmodel <- keras_model_sequential() |>
   layer_dense(units = 100, activation = 'relu', input_shape = dim(abundance_agg_forfitting)[2]) |>
+  layer_dropout(rate = 0.3) |>
   layer_dense(units = 32, activation = 'relu') |>
+  layer_dropout(rate = 0.3) |>
   layer_dense(units = dim(trait_post_blups)[3], activation = 'linear')
 
-# FIXME This does not work.
 nnetmodel |> compile(loss = 'mse', optimizer = 'adam')
 
-summary(model)
+summary(nnetmodel)
 ```
 
 Define function to fit a multi-output neural network model for a single posterior sample. Due to the small sample size, we will do leave-one-out cross-validation on the model (use 8 of 9 maternal microbiomes to fit the model and predict the 9th, repeat until all 9 are predicted). The `keras` package is used to fit the models (so Python code is being called behind the scenes). 
