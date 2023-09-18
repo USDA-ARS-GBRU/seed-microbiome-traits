@@ -69,7 +69,7 @@ for (i in 1:n_samples) {
     ab_train <- abundance_agg_forfitting[-j, ]
     ab_test <- abundance_agg_forfitting[j, , drop = FALSE]
     trait_train <- trait_post_blups_subsample[i, -j, ]
-    trait_test <- trait_post_blups_subsample[i, j, , drop = FALSE]
+    trait_test <- t(as.matrix(trait_post_blups_subsample[i, j, ]))
     
     # Fit model and get predictions for the holdout row.
     nnetmodel |> fit(
@@ -77,8 +77,9 @@ for (i in 1:n_samples) {
     )
     
     results[[length(results) + 1]] <- data.frame(sample = i, row = j, predict(nnetmodel, ab_test))
-    message('Sample ', i, ' of ', n_samples, 'complete.')
+    
   }
+  message('Sample ', i, ' of ', n_samples, ' complete.')
 }
 
 results_df <- do.call(rbind, results)

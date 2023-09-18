@@ -24,6 +24,10 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 # Summary
 
+In this document I extend the single-variable approach from the previous notebook to a multivariate approach. The initial model fitting to get trait BLUPs for each maternal plant is done with a multivariate linear regression. The predictions it produces are really no different than what you would get if you fit a lot of univariate models, just that it also outputs residual correlations between the traits (which we ignore moving forward anyway). Then, instead of a random forest model, a multiple-output neural network model is fit, again we do this repeatedly for every posterior sample. Leave-one-out cross-validation is used. 
+
+The performance of the neural network is extremely bad in terms of predicting traits. In fact it is so bad that I am concerned I did something wrong. Being bad at machine learning things, I wanted to share this with the group to see if there is something that can be tweaked to improve the model. But even if things are tweaked, I think there really is not much signal in the data so this dataset will not give us much insight about relationship between seed microbiome and the traits of the resulting seedling. Not having microbiome and traits from the same seedlings, but only from siblings or half-siblings of the same mother plant, may be obscuring any relationship that does exist.
+
 # Setup
 
 ```{r load packages}
@@ -135,37 +139,88 @@ abundance_agg_wide <- dcast(abundance_agg,  maternal_plant_code ~ V1)
 Subset the aggregated data to get rid of maternal plant J which does not have any offspring trait data. The result, after removing column 1 (maternal plant identifier) is a 9x1432 matrix.
 
 ```{r}
-abundance_agg_forfitting <- abundance_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code, -1]
+abundance_agg_forfitting <- abundance_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code, -1] |> as.matrix()
 ```
 
 ## Multi-output neural network model
 
+### Fit the model with LOO cross-validation
+
 Some of the following code was adapted from [this post](https://www.datatechnotes.com/2020/01/multi-output-regression-example-with.html). First, we need to create a Keras model. Here it is a neural network with an input layer, an output layer, and one layer in between. The inputs are vectors of length 1432 (the microbiomes) and the outputs are vectors of length 6 (the traits). The model will be fit using the `keras` package which means that Python code is running behind the scenes, using the `reticulate` package to call Python from within R.
 
-> NOTE: So far, I haven't been able to get the R keras package to work on my local Windows machine. I had to run this code on the SciNet cluster which has a Linux OS. Everything works fine there. Regardless of whether I can eventually configure it to run on Windows, if we do end up scaling this up to a larger dataset it is probably going to have to be run on an HPC anyway.
+Every iteration through this code, we redefine and recompile the model and fit a multi-output neural network model for a single posterior sample (a slice from the three dimensional array, which is a 9x6 matrix). Due to the small sample size, we do leave-one-out cross-validation on the model (use 8 of 9 maternal microbiomes, or 8x1432 matrix, to fit the model and predict the 9th, repeat until all 9 are predicted). 
 
-```{r}
-nnetmodel <- keras_model_sequential() |>
-  layer_dense(units = 100, activation = 'relu', input_shape = dim(abundance_agg_forfitting)[2]) |>
-  layer_dropout(rate = 0.3) |>
-  layer_dense(units = 32, activation = 'relu') |>
-  layer_dropout(rate = 0.3) |>
-  layer_dense(units = dim(trait_post_blups)[3], activation = 'linear')
+We have two nested loops, the outer loop for the number of trait MC samples we are repeating the model fit for (100), and the inner loop to loop through the rows of the MC sample to do leave-one-out cross-validation. We return the observed and predicted values in each case.
 
-nnetmodel |> compile(loss = 'mse', optimizer = 'adam')
+> NOTE: After much work I was able to configure my laptop (Windows 10) so that this code would run on it. However it takes a little while to run, so I ran it on the SciNet HPC anyway. For any case with a larger dataset, it will be better to run on the HPC.
 
-summary(nnetmodel)
-```
-
-Define function to fit a multi-output neural network model for a single posterior sample. Due to the small sample size, we will do leave-one-out cross-validation on the model (use 8 of 9 maternal microbiomes to fit the model and predict the 9th, repeat until all 9 are predicted). The `keras` package is used to fit the models (so Python code is being called behind the scenes). 
-
-This function will take one sample from the posterior distribution (a slice from the three dimensional array which is a 9x6 matrix) as input. Within the function we will loop through and fit the model 9 times, to 8 of the matrix rows, and predict the 9th. We return the observed and predicted values in each case.
-
-```{r}
-fit_nnet_leaveoneoutcv <- function(post_samples) {
-  # FIXME Fill in function here.
+```{r, eval = FALSE}
+results <- list()
+for (i in 1:n_samples) {
+  for (j in 1:nrow(pred_grid)) {
+    # Define and compile model.
+    nnetmodel <- keras_model_sequential() |>
+      layer_dense(units = 100, activation = 'relu', input_shape = dim(abundance_agg_forfitting)[2]) |>
+      layer_dropout(rate = 0.3) |>
+      layer_dense(units = 32, activation = 'relu') |>
+      layer_dropout(rate = 0.3) |>
+      layer_dense(units = dim(trait_post_blups)[3], activation = 'linear')
+    
+    nnetmodel |> compile(loss = 'mse', optimizer = 'adam')
+    
+    # Create train and test split with just a single holdout row and the rest used for fitting.
+    ab_train <- abundance_agg_forfitting[-j, ]
+    ab_test <- abundance_agg_forfitting[j, , drop = FALSE]
+    trait_train <- trait_post_blups_subsample[i, -j, ]
+    trait_test <- t(as.matrix(trait_post_blups_subsample[i, j, ]))
+    
+    # Fit model and get predictions for the holdout row.
+    nnetmodel |> fit(
+      x = ab_train, y = trait_train, epochs = 1000, verbose = 0
+    )
+    
+    results[[length(results) + 1]] <- data.frame(sample = i, row = j, predict(nnetmodel, ab_test))
+    
+  }
+  message('Sample ', i, ' of ', n_samples, ' complete.')
 }
+
+results_df <- do.call(rbind, results)
+fwrite(results_df, 'project/fits/nnet_mv_trait_results.csv')
 ```
 
+### Examine results
 
-...continue past here ...
+Visualize the distributions of predicted and observed results. Note that everything here has been log-transformed and then standardized.
+
+Calculate the RMSE for each of the traits for each posterior sample. Because the traits have been standardized, all results will be in standard deviation units.
+
+```{r}
+results_df <- fread('project/fits/nnet_mv_trait_results.csv')
+
+rmse <- list()
+
+for (i in 1:n_samples) {
+  trait_obs <- trait_post_blups_subsample[i,,]
+  trait_pred <- results_df[sample == i, -(1:2)]
+  
+  # RMSE for each column.
+  rmse[[length(rmse) + 1]] <- sqrt(apply((trait_obs - trait_pred)^2, 2, mean))
+}
+
+rmse_df <- do.call(rbind, rmse) |> as.data.table() |> setnames(names(traits_std)[-(1:2)])
+```
+
+Show the distributions of the RMSEs.
+
+```{r}
+melt(rmse_df, variable.name = 'trait', value.name = 'RMSE') |>
+  ggplot(aes(x = trait, y = RMSE)) +
+  geom_boxplot()
+```
+
+These are remarkably high RMSEs, seeing as they are in standard deviation units. It seems like microbiome does not predict traits. However the results are so poor that I am concerned there is an issue with how the model is being fit. 
+
+> If someone can give any critique on the model fitting part of this that could potentially improve the model performance, I would be interested to hear it!
+
+Ultimately, I think that regardless of what statistical method is used, it may be that the relationship between seed microbiome and traits of the resulting seedling is very dependent on the individual seed. Because we do not have any one-to-one correspondence between seed microbiome and seedling traits, we may not be able to say that much about this relationship. We just have a set of seeds with microbiome sampled, and a set of seeds with traits sampled. They do not come from the same individuals. Yes, some are siblings or at least half-siblings because they come from the same maternal plant. However if the relationship between microbiome and traits is dependent on what components of the maternal microbiome happened to make it into one particular seed, then our data cannot uncover that relationship no matter what we do.
