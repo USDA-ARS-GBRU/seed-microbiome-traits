@@ -248,27 +248,36 @@ Visualize the distributions of predicted and observed results. Note that everyth
 Calculate the RMSE for each of the traits for each posterior sample. Because the traits have been standardized, all results will be in standard deviation units.
 
 ```{r}
-results_df <- fread('project/fits/nnet_mv_trait_results.csv')
+results_df_16S <- fread('project/fits/nnet_mv_trait_results_16S.csv')
+results_df_ITS <- fread('project/fits/nnet_mv_trait_results_ITS.csv')
 
-rmse <- list()
+rmse_16S <- list()
+rmse_ITS <- list()
 
 for (i in 1:n_samples) {
   trait_obs <- trait_post_blups_subsample[i,,]
-  trait_pred <- results_df[sample == i, -(1:2)]
+  trait_pred_16S <- results_df_16S[sample == i, -(1:2)]
+  trait_pred_ITS <- results_df_ITS[sample == i, -(1:2)]
   
   # RMSE for each column.
-  rmse[[length(rmse) + 1]] <- sqrt(apply((trait_obs - trait_pred)^2, 2, mean))
+  rmse_16S[[length(rmse_16S) + 1]] <- sqrt(apply((trait_obs - trait_pred_16S)^2, 2, mean))
+  rmse_ITS[[length(rmse_ITS) + 1]] <- sqrt(apply((trait_obs - trait_pred_ITS)^2, 2, mean))
 }
 
-rmse_df <- do.call(rbind, rmse) |> as.data.table() |> setnames(names(traits_std)[-(1:2)])
+rmse_df_16S <- do.call(rbind, rmse_16S) |> as.data.table() |> setnames(names(traits_std)[-(1:2)])
+rmse_df_ITS <- do.call(rbind, rmse_ITS) |> as.data.table() |> setnames(names(traits_std)[-(1:2)])
 ```
 
 Show the distributions of the RMSEs.
 
 ```{r}
-melt(rmse_df, variable.name = 'trait', value.name = 'RMSE') |>
+melt(rmse_df_16S, variable.name = 'trait', value.name = 'RMSE') |>
   ggplot(aes(x = trait, y = RMSE)) +
-  geom_boxplot()
+  geom_boxplot() + ggtitle('16S')
+
+melt(rmse_df_ITS, variable.name = 'trait', value.name = 'RMSE') |>
+  ggplot(aes(x = trait, y = RMSE)) +
+  geom_boxplot() + ggtitle('ITS')
 ```
 
 These are remarkably high RMSEs, seeing as they are in standard deviation units. A null model should have RMSE = 1 standard deviation. It seems like microbiome does not predict traits. However the results are so poor that I am concerned there is an issue with how the model is being fit. 
