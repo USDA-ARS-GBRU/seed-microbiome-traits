@@ -59,7 +59,7 @@ for (i in 1:n_samples) {
   for (j in 1:nrow(pred_grid)) {
     # Define and compile model.
     nnetmodel <- keras_model_sequential() |>
-      layer_dense(units = 100, activation = 'relu', input_shape = dim(abundance_agg_forfitting)[2]) |>
+      layer_dense(units = 100, activation = 'relu', input_shape = dim(abundanceITS_agg_forfitting)[2]) |>
       layer_dropout(rate = 0.3) |>
       layer_dense(units = 32, activation = 'relu') |>
       layer_dropout(rate = 0.3) |>
