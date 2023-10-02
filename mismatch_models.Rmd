@@ -26,7 +26,7 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 Here, I took individual seed traits, fit a mixed model with country of origin as a fixed effect and maternal plant as a random intercept to each trait, then extracted the posterior predictions for each maternal plant from the models. Next, I aggregated the seed microbiomes from each maternal plant by adding the counts together. Then, for each of 100 posterior samples for each trait, I fit a random forest model using the aggregated microbiomes of each maternal plant to predict the modeled trait value for the maternal plant.
 
-The random forest models performed poorly and do not predict trait given maternal microbiome. 
+The random forest models performed poorly and do not predict trait given maternal microbiome. This is true for both 16S and ITS microbiome.
 
 Two potential ways to extend this are (1) to make it a multivariate approach instead of a series of univariate models. This would involve replacing the univariate mixed models with a multivariate response, and replacing the series of random forests with a multioutput neural network or something similar. This is unlikely to yield a different result in the case of this dataset but may be worth working on for other cases. The other extension is (2) to use Aldex2 or some other approach to get a distribution of estimates for the aggregated maternal seed microbiome, instead of just adding up the offsprings' microbiomes. Again, this is unlikely to be useful here but might be for future cases.
 
@@ -43,7 +43,8 @@ library(ALDEx2)
 options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
 
 # Import data. Corrected labels, data accessed from g drive 2023-06-06
-abundance <- fread('project/data/16S_abundance.csv')
+abundance16S <- fread('project/data/16S_abundance.csv')
+abundanceITS <- fread('project/data/ITS_Abundance.csv')
 traits <- fread('project/data/seedling_data_updated.csv')
 ```
 
@@ -115,29 +116,43 @@ This is a "quick and dirty" method. Aggregate the microbiome samples by maternal
 
 Convert abundance data to longform and then create identifier columns for sample ID and maternal plant code. Sum the counts and then convert to a wideform with taxa as columns.
 
+Repeat this for 16S and ITS abundance. ITS abundance has a few rows with 0 abundance across all samples. Remove these first.
+
 ```{r}
-abundance_long <- melt(abundance, id.vars = 'V1') 
-abundance_long[, maternal_plant_code := substr(variable, 3, 3)]
-abundance_long[, sampleID := substr(variable, 1, 2)]
+abundance16S_long <- melt(abundance16S, id.vars = 'V1') 
+abundance16S_long[, maternal_plant_code := substr(variable, 3, 3)]
+abundance16S_long[, sampleID := substr(variable, 1, 2)]
 
-abundance_wide <- dcast(abundance_long,  maternal_plant_code + sampleID ~ V1)
+abundance16S_wide <- dcast(abundance16S_long,  maternal_plant_code + sampleID ~ V1)
 
-abundance_agg <- abundance_long[, .(value = sum(value)), by = .(V1, maternal_plant_code)]
-abundance_agg_wide <- dcast(abundance_agg,  maternal_plant_code ~ V1)
+abundance16S_agg <- abundance16S_long[, .(value = sum(value)), by = .(V1, maternal_plant_code)]
+abundance16S_agg_wide <- dcast(abundance16S_agg,  maternal_plant_code ~ V1)
+
+abundanceITS <- abundanceITS[rowSums(abundanceITS[,-1]) > 0]
+
+abundanceITS_long <- melt(abundanceITS, id.vars = 'V1') 
+abundanceITS_long[, maternal_plant_code := substr(variable, 3, 3)]
+abundanceITS_long[, sampleID := substr(variable, 1, 2)]
+
+abundanceITS_wide <- dcast(abundanceITS_long,  maternal_plant_code + sampleID ~ V1)
+
+abundanceITS_agg <- abundanceITS_long[, .(value = sum(value)), by = .(V1, maternal_plant_code)]
+abundanceITS_agg_wide <- dcast(abundanceITS_agg,  maternal_plant_code ~ V1)
 ```
 
 Subset the aggregated data to get rid of maternal plant J which does not have data for any of the traits.
 
 ```{r}
-abundance_agg_forfitting <- abundance_agg_wide[maternal_plant_code %in% pred_grids[[1]]$maternal_plant_code]
+abundance16S_agg_forfitting <- abundance16S_agg_wide[maternal_plant_code %in% pred_grids[[1]]$maternal_plant_code]
+abundanceITS_agg_forfitting <- abundanceITS_agg_wide[maternal_plant_code %in% pred_grids[[1]]$maternal_plant_code]
 ```
 
-Define function to fit the random forest for a single posterior sample. 
+Define function to fit the random forest for a single posterior sample. Specify which 
 
 ```{r}
-fit_rf <- function(y, pred_grid) {
+fit_rf <- function(y, pred_grid, abundance_dt) {
   y <- data.table(maternal_plant_code = pred_grid$maternal_plant_code, y = y)
-  dt <- y[abundance_agg_forfitting, on = .(maternal_plant_code)]
+  dt <- y[abundance_dt, on = .(maternal_plant_code)]
   dt[, maternal_plant_code := NULL]
   setnames(dt, c('y', paste0('otu', 1:(ncol(dt)-1)))) # Must do this because the OTU names are not valid column names.
   rf <- ranger(y ~ ., data = dt, min.node.size = 3, num.trees = 1000)
@@ -151,23 +166,36 @@ Apply the function to a random subset of 100 of the posterior samples.
 ```{r}
 set.seed(1104)
 trait_post_blups_subsample <- map(trait_post_blups, ~ .[sample(1:nrow(.), 100), ])
-post_rf_fits <- map2(trait_post_blups_subsample, pred_grids, ~ apply(.x, 1, fit_rf, pred_grid = .y))
+post_rf_fits_16S <- map2(trait_post_blups_subsample, pred_grids, ~ apply(.x, 1, fit_rf, pred_grid = .y, abundance_dt = abundance16S_agg_forfitting))
+post_rf_fits_ITS <- map2(trait_post_blups_subsample, pred_grids, ~ apply(.x, 1, fit_rf, pred_grid = .y, abundance_dt = abundanceITS_agg_forfitting))
 ```
 
-Examine the out-of-bag R-squared values for all 100 posterior samples.
+Examine the out-of-bag R-squared values for all 100 posterior samples, for both 16S and ITS.
 
 ```{r}
-rsqs <- map2(post_rf_fits, trait_names, ~ data.frame(trait = .y, rsquared = map_dbl(.x, 'r.squared'))) |> list_rbind()
-ggplot(rsqs, aes(x = rsquared)) +
+rsqs_16S <- map2(post_rf_fits_16S, trait_names, ~ data.frame(trait = .y, rsquared = map_dbl(.x, 'r.squared'))) |> list_rbind()
+rsqs_ITS <- map2(post_rf_fits_ITS, trait_names, ~ data.frame(trait = .y, rsquared = map_dbl(.x, 'r.squared'))) |> list_rbind()
+
+ggplot(rsqs_16S, aes(x = rsquared)) +
   geom_histogram() +
   stat_summary(aes(y = rsquared, x = 0.1, xintercept = stat(y)), geom = 'vline', fun.y = 'median', color = 'red') +
   facet_wrap(~ trait) +
   scale_y_continuous(name = 'count', expand = expansion(add = c(0, 1)), breaks = c(0, 4, 8, 12)) +
   labs(x = 'out-of-bag R^2^') +
-  theme(axis.title.x = ggtext::element_markdown())
+  theme(axis.title.x = ggtext::element_markdown()) +
+  ggtitle('16S')
+
+ggplot(rsqs_ITS, aes(x = rsquared)) +
+  geom_histogram() +
+  stat_summary(aes(y = rsquared, x = 0.1, xintercept = stat(y)), geom = 'vline', fun.y = 'median', color = 'red') +
+  facet_wrap(~ trait) +
+  scale_y_continuous(name = 'count', expand = expansion(add = c(0, 1)), breaks = c(0, 4, 8, 12)) +
+  labs(x = 'out-of-bag R^2^') +
+  theme(axis.title.x = ggtext::element_markdown()) +
+  ggtitle('ITS')
 ```
 
-It is very poor performance: almost all the out of bag r-squared values are <0 and the mean is about -0.2, indicating that the model using microbiome to predict traits (after adjusting for maternal plant identity and country of origin using the linear mixed model) is even worse than just predicting that every individual has the average trait.
+It is very poor performance for both 16S and ITS: almost all the out of bag r-squared values are <0 and the mean is about -0.2, indicating that the model using microbiome to predict traits (after adjusting for maternal plant identity and country of origin using the linear mixed model) is even worse than just predicting that every individual has the average trait.
 
 # Option 2: use distribution from Aldex2 model to predict traits
 

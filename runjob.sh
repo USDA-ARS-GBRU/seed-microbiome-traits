@@ -8,5 +8,5 @@
 
 cd /home/quentin.read/GitHub/seed-microbiome-traits
 module load r/4.3.0 python_3
-Rscript2 keras_remote.R
+Rscript2 keras_remote_ITS.R
 

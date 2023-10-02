@@ -24,7 +24,7 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 # Summary
 
-In this document I extend the single-variable approach from the previous notebook to a multivariate approach. The initial model fitting to get trait BLUPs for each maternal plant is done with a multivariate linear regression. The predictions it produces are really no different than what you would get if you fit a lot of univariate models, just that it also outputs residual correlations between the traits (which we ignore moving forward anyway). Then, instead of a random forest model, a multiple-output neural network model is fit, again we do this repeatedly for every posterior sample. Leave-one-out cross-validation is used. 
+In this document I extend the single-variable approach from the previous notebook to a multivariate approach. The initial model fitting to get trait BLUPs for each maternal plant is done with a multivariate linear regression. The predictions it produces are really no different than what you would get if you fit a lot of univariate models, just that it also outputs residual correlations between the traits (which we ignore moving forward anyway). Then, instead of a random forest model, a multiple-output neural network model is fit, again we do this repeatedly for every posterior sample. Leave-one-out cross-validation is used. The process is repeated for 16S and ITS.
 
 The performance of the neural network is extremely bad in terms of predicting traits. In fact it is so bad that I am concerned I did something wrong. Being bad at machine learning things, I wanted to share this with the group to see if there is something that can be tweaked to improve the model. But even if things are tweaked, I think there really is not much signal in the data so this dataset will not give us much insight about relationship between seed microbiome and the traits of the resulting seedling. Not having microbiome and traits from the same seedlings, but only from siblings or half-siblings of the same mother plant, may be obscuring any relationship that does exist.
 
@@ -40,7 +40,8 @@ library(keras)
 options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
 
 # Import data. Corrected labels, data accessed from g drive 2023-06-06
-abundance <- fread('project/data/16S_abundance.csv')
+abundance16S <- fread('project/data/16S_abundance.csv')
+abundanceITS <- fread('project/data/ITS_Abundance.csv')
 traits <- fread('project/data/seedling_data_updated.csv')
 ```
 
@@ -126,20 +127,32 @@ This uses the quick and dirty method of using the aggregated microbiome (sums of
 Convert abundance data to longform and then create identifier columns for sample ID and maternal plant code. Sum the counts and then convert to a wideform with taxa as columns.
 
 ```{r}
-abundance_long <- melt(abundance, id.vars = 'V1') 
-abundance_long[, maternal_plant_code := substr(variable, 3, 3)]
-abundance_long[, sampleID := substr(variable, 1, 2)]
+abundance16S_long <- melt(abundance16S, id.vars = 'V1') 
+abundance16S_long[, maternal_plant_code := substr(variable, 3, 3)]
+abundance16S_long[, sampleID := substr(variable, 1, 2)]
 
-abundance_wide <- dcast(abundance_long,  maternal_plant_code + sampleID ~ V1)
+abundance16S_wide <- dcast(abundance16S_long,  maternal_plant_code + sampleID ~ V1)
 
-abundance_agg <- abundance_long[, .(value = sum(value)), by = .(V1, maternal_plant_code)]
-abundance_agg_wide <- dcast(abundance_agg,  maternal_plant_code ~ V1)
+abundance16S_agg <- abundance16S_long[, .(value = sum(value)), by = .(V1, maternal_plant_code)]
+abundance16S_agg_wide <- dcast(abundance16S_agg,  maternal_plant_code ~ V1)
+
+abundanceITS <- abundanceITS[rowSums(abundanceITS[,-1]) > 0]
+
+abundanceITS_long <- melt(abundanceITS, id.vars = 'V1') 
+abundanceITS_long[, maternal_plant_code := substr(variable, 3, 3)]
+abundanceITS_long[, sampleID := substr(variable, 1, 2)]
+
+abundanceITS_wide <- dcast(abundanceITS_long,  maternal_plant_code + sampleID ~ V1)
+
+abundanceITS_agg <- abundanceITS_long[, .(value = sum(value)), by = .(V1, maternal_plant_code)]
+abundanceITS_agg_wide <- dcast(abundanceITS_agg,  maternal_plant_code ~ V1)
 ```
 
 Subset the aggregated data to get rid of maternal plant J which does not have any offspring trait data. The result, after removing column 1 (maternal plant identifier) is a 9x1432 matrix.
 
 ```{r}
-abundance_agg_forfitting <- abundance_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code, -1] |> as.matrix()
+abundance16S_agg_forfitting <- abundance16S_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code, -1] |> as.matrix()
+abundanceITS_agg_forfitting <- abundanceITS_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code, -1] |> as.matrix()
 ```
 
 ## Multi-output neural network model
@@ -153,6 +166,8 @@ Every iteration through this code, we redefine and recompile the model and fit a
 We have two nested loops, the outer loop for the number of trait MC samples we are repeating the model fit for (100), and the inner loop to loop through the rows of the MC sample to do leave-one-out cross-validation. We return the observed and predicted values in each case.
 
 > NOTE: After much work I was able to configure my laptop (Windows 10) so that this code would run on it. However it takes a little while to run, so I ran it on the SciNet HPC anyway. For any case with a larger dataset, it will be better to run on the HPC.
+
+#### 16S
 
 ```{r, eval = FALSE}
 results <- list()
@@ -169,8 +184,8 @@ for (i in 1:n_samples) {
     nnetmodel |> compile(loss = 'mse', optimizer = 'adam')
     
     # Create train and test split with just a single holdout row and the rest used for fitting.
-    ab_train <- abundance_agg_forfitting[-j, ]
-    ab_test <- abundance_agg_forfitting[j, , drop = FALSE]
+    ab_train <- abundance16S_agg_forfitting[-j, ]
+    ab_test <- abundance16S_agg_forfitting[j, , drop = FALSE]
     trait_train <- trait_post_blups_subsample[i, -j, ]
     trait_test <- t(as.matrix(trait_post_blups_subsample[i, j, ]))
     
@@ -186,7 +201,44 @@ for (i in 1:n_samples) {
 }
 
 results_df <- do.call(rbind, results)
-fwrite(results_df, 'project/fits/nnet_mv_trait_results.csv')
+fwrite(results_df, 'project/fits/nnet_mv_trait_results_16S.csv')
+```
+
+#### ITS
+
+```{r, eval = FALSE}
+results <- list()
+for (i in 1:n_samples) {
+  for (j in 1:nrow(pred_grid)) {
+    # Define and compile model.
+    nnetmodel <- keras_model_sequential() |>
+      layer_dense(units = 100, activation = 'relu', input_shape = dim(abundance_agg_forfitting)[2]) |>
+      layer_dropout(rate = 0.3) |>
+      layer_dense(units = 32, activation = 'relu') |>
+      layer_dropout(rate = 0.3) |>
+      layer_dense(units = dim(trait_post_blups)[3], activation = 'linear')
+    
+    nnetmodel |> compile(loss = 'mse', optimizer = 'adam')
+    
+    # Create train and test split with just a single holdout row and the rest used for fitting.
+    ab_train <- abundanceITS_agg_forfitting[-j, ]
+    ab_test <- abundanceITS_agg_forfitting[j, , drop = FALSE]
+    trait_train <- trait_post_blups_subsample[i, -j, ]
+    trait_test <- t(as.matrix(trait_post_blups_subsample[i, j, ]))
+    
+    # Fit model and get predictions for the holdout row.
+    nnetmodel |> fit(
+      x = ab_train, y = trait_train, epochs = 1000, verbose = 0
+    )
+    
+    results[[length(results) + 1]] <- data.frame(sample = i, row = j, predict(nnetmodel, ab_test))
+    
+  }
+  message('Sample ', i, ' of ', n_samples, ' complete.')
+}
+
+results_df <- do.call(rbind, results)
+fwrite(results_df, 'project/fits/nnet_mv_trait_results_ITS.csv')
 ```
 
 ### Examine results
@@ -219,7 +271,7 @@ melt(rmse_df, variable.name = 'trait', value.name = 'RMSE') |>
   geom_boxplot()
 ```
 
-These are remarkably high RMSEs, seeing as they are in standard deviation units. It seems like microbiome does not predict traits. However the results are so poor that I am concerned there is an issue with how the model is being fit. 
+These are remarkably high RMSEs, seeing as they are in standard deviation units. A null model should have RMSE = 1 standard deviation. It seems like microbiome does not predict traits. However the results are so poor that I am concerned there is an issue with how the model is being fit. 
 
 > If someone can give any critique on the model fitting part of this that could potentially improve the model performance, I would be interested to hear it!
 
