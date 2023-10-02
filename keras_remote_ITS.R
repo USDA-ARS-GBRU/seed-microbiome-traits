@@ -68,8 +68,8 @@ for (i in 1:n_samples) {
     nnetmodel |> compile(loss = 'mse', optimizer = 'adam')
     
     # Create train and test split with just a single holdout row and the rest used for fitting.
-    ab_train <- abundance_agg_forfitting[-j, ]
-    ab_test <- abundance_agg_forfitting[j, , drop = FALSE]
+    ab_train <- abundanceITS_agg_forfitting[-j, ]
+    ab_test <- abundanceITS_agg_forfitting[j, , drop = FALSE]
     trait_train <- trait_post_blups_subsample[i, -j, ]
     trait_test <- t(as.matrix(trait_post_blups_subsample[i, j, ]))
     
