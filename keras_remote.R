@@ -86,4 +86,4 @@ for (i in 1:n_samples) {
 }
 
 results_df <- do.call(rbind, results)
-fwrite(results_df, 'project/fits/nnet_mv_trait_results.csv')
+fwrite(results_df, 'project/fits/nnet_mv_trait_results_16S.csv')

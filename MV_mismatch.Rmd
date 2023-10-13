@@ -37,6 +37,7 @@ library(ggplot2)
 library(purrr)
 library(keras)
 library(mixOmics)
+library(ggdist)
 
 options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
 
@@ -300,8 +301,65 @@ Ultimately, I think that regardless of what statistical method is used, it may b
 
 The neural network model may be a bit too data-hungry for the relatively small sample size that we have. Thus I will use PLS instead to try to simultaneously do dimension reduction on the microbiome matrix and look at any relationship with the multivariate seedling trait matrix.
 
+Here, for all 4000 of the posterior BLUP matrices for the traits, I conduct PLS regression with 3 components, regressing the trait matrix onto the microbiome matrix (this is done for both 16S and ITS). I conduct leave-one-out cross-validation by repeating this process 9 times, once with each of the 9 maternal plants left out. A prediction is generated for the 9th maternal plant. This prediction has 3 values for each of the 6 traits, using the first, the first two, and all three of the components to predict. I calculate the RMSE of the prediction. Then I plot the distribution of RMSEs across all 4000 posterior iterations for each trait, for each of the three predictions. 
+
+This code takes only a few minutes to run so I could run it on my laptop.
+
 ```{r}
-pls_16s_test <- pls(X = abundance16S_agg_forfitting, Y = trait_post_blups[101,,], ncomp = 2)
-pls_16s_test <- pls(X = abundance16S_agg_forfitting, Y = trait_post_blups[101,,1], ncomp = 1)
+# Define function to fit PLS using Leave-one-out cross-validation and return the RMSEs for each of the three components.
+fit_pls <- function(abundance_mat, trait_mat, n_components) {
+  pls_loo_fits <- lapply(1:9, \(i) pls(X = abundance_mat[-i,], Y = trait_mat[-i,], ncomp = n_components, mode = 'regression'))
+  pls_loo_preds <- lapply(1:9, \(i) predict(pls_loo_fits[[i]], newdata = abundance_mat[i, , drop = FALSE]))
+  pls_loo_predmats <- lapply(1:n_components, \(comp) do.call(rbind, lapply(pls_loo_preds, \(p) p$predict[,,comp])))
+  pls_loo_rmses <- lapply(1:n_components, \(comp) sqrt(apply((trait_mat - pls_loo_predmats[[comp]])^2, 2, mean)))
+  as.data.table(cbind(component = 1:n_components, do.call(rbind, pls_loo_rmses)))
+}
+
+# Apply function to 16S and ITS for all posterior iterations; 3 components used.
+n_components <- 3
+
+pls_rmses_16S <- apply(trait_post_blups, 1, \(tmat) fit_pls(abundance16S_agg_forfitting, tmat, n_components))
+pls_rmses_16S <- cbind(iter = rep(1:dim(trait_post_blups)[1], each = n_components), do.call(rbind, pls_rmses_16S))
+
+pls_rmses_ITS <- apply(trait_post_blups, 1, \(tmat) fit_pls(abundanceITS_agg_forfitting, tmat, n_components))
+pls_rmses_ITS <- cbind(iter = rep(1:dim(trait_post_blups)[1], each = n_components), do.call(rbind, pls_rmses_ITS))
 ```
+
+Show the distributions of the RMSEs as interval plots. The median RMSE is plotted as a black dot.
+
+> Note that I put a horizontal line at RMSE = 1 because we are using standardized data with a standard deviation of 1. Thus, if we had a pure null model with no information, we would get RMSE = 1. Here, RMSE = 1 is the bare minimum we want to get. Any model with RMSE >= 1 is worse than the null model.
+
+```{r}
+pls_rmses_16S_long <- melt(pls_rmses_16S, id.vars = c('iter', 'component'), variable.name = 'trait', value.name = 'RMSE')
+pls_rmses_16S_long[, component := factor(component)]
+
+less1_16S <- pls_rmses_16S_long[, .(p = sum(RMSE < 1)/.N), by = .(trait, component)]
+
+ggplot(pls_rmses_16S_long, aes(x = trait, y = RMSE)) +
+  stat_interval(aes(color_ramp = after_stat(level), color = component), position = position_dodge(width = .5)) + 
+  stat_summary(aes(group = component), fun = median, geom = 'point', size = 2, position = position_dodge(width = .5)) +
+  geom_hline(yintercept = 1, linetype = 'dashed', linewidth = 1, color = 'gray50') +
+  ggtitle('16S') +
+  scale_color_brewer(palette = 'Dark2', name = 'number of components used to predict') +
+  theme(legend.position = 'bottom') 
+
+pls_rmses_ITS_long <- melt(pls_rmses_ITS, id.vars = c('iter', 'component'), variable.name = 'trait', value.name = 'RMSE')
+pls_rmses_ITS_long[, component := factor(component)]
+
+less1_ITS <- pls_rmses_ITS_long[, .(p = sum(RMSE < 1)/.N), by = .(trait, component)]
+
+ggplot(pls_rmses_ITS_long, aes(x = trait, y = RMSE)) +
+  stat_interval(aes(color_ramp = after_stat(level), color = component), position = position_dodge(width = .5)) + 
+  stat_summary(aes(group = component), fun = median, geom = 'point', size = 2, position = position_dodge(width = .5)) +
+  geom_hline(yintercept = 1, linetype = 'dashed', linewidth = 1, color = 'gray50') +
+  ggtitle('ITS') +
+  scale_color_brewer(palette = 'Dark2', name = 'number of components used to predict') +
+  theme(legend.position = 'bottom')
+```
+
+As you can see from the above plots for 16S, most of the prediction results are worse than the null model. In particular the median of the RMSE posterior distribution is well above 1 for all six traits. **Interpretation: When we fit a PLS model to 8/9 of the plants, relating their seedlings' aggregated microbiome to their seedlings' aggregated traits, and predict the held-out maternal plant's average seedling trait value using its average seedling microbiome, we get a worse result than if we had completely ignored microbiome and just made a naive prediction using the mean seedling trait values across all maternal plants.**
+
+It is interesting to see that ITS has a far worse RMSE than 16S. The ITS predictions are extremely bad compared to the null value of RMSE = 1, whereas the 16S predictions are at least clustered slightly above that null value, and some mass of the RMSE posterior distributions are <1 (around 10-20% of iterations had RMSE<1 for 16S, while essentially none did for ITS).
+
+We also see that adding more components from the PLS to the prediction uniformly makes the prediction worse. This is yet another confirmation that there is not that much seedling trait signal in the seedling microbiome data.
 
