@@ -36,6 +36,7 @@ library(brms)
 library(ggplot2)
 library(purrr)
 library(keras)
+library(mixOmics)
 
 options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
 
@@ -148,11 +149,18 @@ abundanceITS_agg <- abundanceITS_long[, .(value = sum(value)), by = .(V1, matern
 abundanceITS_agg_wide <- dcast(abundanceITS_agg,  maternal_plant_code ~ V1)
 ```
 
-Subset the aggregated data to get rid of maternal plant J which does not have any offspring trait data. The result, after removing column 1 (maternal plant identifier) is a 9x1432 matrix.
+Subset the aggregated data to get rid of maternal plant J which does not have any offspring trait data. The result, after removing column 1 (maternal plant identifier) is a 9x1432 matrix for ITS and a 9x650 matrix for 16S.
 
 ```{r}
 abundance16S_agg_forfitting <- abundance16S_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code, -1] |> as.matrix()
 abundanceITS_agg_forfitting <- abundanceITS_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code, -1] |> as.matrix()
+```
+
+We can further remove columns with all 0 counts; there are a few of them in each matrix after maternal plant J was removed. We end up with 9x1293 for 16S and 9x585 for ITS.
+
+```{r}
+abundance16S_agg_forfitting <- abundance16S_agg_forfitting[, colSums(abundance16S_agg_forfitting) > 0]
+abundanceITS_agg_forfitting <- abundanceITS_agg_forfitting[, colSums(abundanceITS_agg_forfitting) > 0] 
 ```
 
 ## Multi-output neural network model
@@ -285,3 +293,15 @@ These are remarkably high RMSEs, seeing as they are in standard deviation units.
 > If someone can give any critique on the model fitting part of this that could potentially improve the model performance, I would be interested to hear it!
 
 Ultimately, I think that regardless of what statistical method is used, it may be that the relationship between seed microbiome and traits of the resulting seedling is very dependent on the individual seed. Because we do not have any one-to-one correspondence between seed microbiome and seedling traits, we may not be able to say that much about this relationship. We just have a set of seeds with microbiome sampled, and a set of seeds with traits sampled. They do not come from the same individuals. Yes, some are siblings or at least half-siblings because they come from the same maternal plant. However if the relationship between microbiome and traits is dependent on what components of the maternal microbiome happened to make it into one particular seed, then our data cannot uncover that relationship no matter what we do.
+
+## PLS
+
+> STILL WORK IN PROGRESS
+
+The neural network model may be a bit too data-hungry for the relatively small sample size that we have. Thus I will use PLS instead to try to simultaneously do dimension reduction on the microbiome matrix and look at any relationship with the multivariate seedling trait matrix.
+
+```{r}
+pls_16s_test <- pls(X = abundance16S_agg_forfitting, Y = trait_post_blups[101,,], ncomp = 2)
+pls_16s_test <- pls(X = abundance16S_agg_forfitting, Y = trait_post_blups[101,,1], ncomp = 1)
+```
+

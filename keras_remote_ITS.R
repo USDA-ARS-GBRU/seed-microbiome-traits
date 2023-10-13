@@ -1,4 +1,5 @@
 # Run keras model remotely
+# sbatch --job-name=nnits --export=scriptname=keras_remote_ITS.R runjob.sh
 
 library(brms)
 library(keras)
@@ -46,6 +47,8 @@ abundanceITS_agg <- abundanceITS_long[, .(value = sum(value)), by = .(V1, matern
 abundanceITS_agg_wide <- dcast(abundanceITS_agg,  maternal_plant_code ~ V1)
 
 abundanceITS_agg_forfitting <- as.matrix(abundanceITS_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code, -1])
+
+abundanceITS_agg_forfitting <- abundanceITS_agg_forfitting[, colSums(abundanceITS_agg_forfitting) > 0] 
 
 set.seed(1104)
 n_samples <- 100
