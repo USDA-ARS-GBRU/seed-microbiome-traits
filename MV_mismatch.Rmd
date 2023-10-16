@@ -24,9 +24,9 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 # Summary
 
-In this document I extend the single-variable approach from the previous notebook to a multivariate approach. The initial model fitting to get trait BLUPs for each maternal plant is done with a multivariate linear regression. The predictions it produces are really no different than what you would get if you fit a lot of univariate models, just that it also outputs residual correlations between the traits (which we ignore moving forward anyway). Then, instead of a random forest model, a multiple-output neural network model is fit, again we do this repeatedly for every posterior sample. Leave-one-out cross-validation is used. The process is repeated for 16S and ITS.
+In this document I extend the single-variable approach from the previous notebook to a multivariate approach. The initial model fitting to get trait BLUPs for each maternal plant is done with a multivariate linear regression. The predictions it produces are really no different than what you would get if you fit a lot of univariate models, just that it also outputs residual correlations between the traits (which we ignore moving forward anyway). Then, instead of a random forest model, a multiple-output neural network model is fit, again we do this repeatedly for every posterior sample. Leave-one-out cross-validation is used. The process is repeated for 16S and ITS. In addition to the neural network, I also fit PLS models for both 16S and ITS.
 
-The performance of the neural network is extremely bad in terms of predicting traits. In fact it is so bad that I am concerned I did something wrong. Being bad at machine learning things, I wanted to share this with the group to see if there is something that can be tweaked to improve the model. But even if things are tweaked, I think there really is not much signal in the data so this dataset will not give us much insight about relationship between seed microbiome and the traits of the resulting seedling. Not having microbiome and traits from the same seedlings, but only from siblings or half-siblings of the same mother plant, may be obscuring any relationship that does exist.
+Both PLS and NNET models produce results indistinguishable from a null model. I think there really is not much signal in the data so this dataset will not give us much insight about relationship between seed microbiome and the traits of the resulting seedling. Not having microbiome and traits from the same seedlings, but only from siblings or half-siblings of the same mother plant, may be obscuring any relationship that does exist.
 
 # Setup
 
@@ -283,31 +283,37 @@ Show the distributions of the RMSEs.
 
 ```{r}
 melt(rmse_df_16S, variable.name = 'trait', value.name = 'RMSE') |>
-  ggplot(aes(x = trait, y = RMSE)) +
-  geom_boxplot() + ggtitle('16S')
+ggplot(aes(x = trait, y = RMSE)) +
+  stat_interval(aes(color = after_stat(level)), position = position_dodge(width = .5)) + 
+  stat_summary(fun = median, geom = 'point', size = 2, position = position_dodge(width = .5)) +
+  geom_hline(yintercept = 1, linetype = 'dashed', linewidth = 1, color = 'gray50') +
+  ggtitle('16S') +
+  scale_color_brewer(palette = 'Blues') +
+  theme(legend.position = 'bottom') +
+  scale_x_discrete(labels = trait_names)
 
 melt(rmse_df_ITS, variable.name = 'trait', value.name = 'RMSE') |>
-  ggplot(aes(x = trait, y = RMSE)) +
-  geom_boxplot() + ggtitle('ITS')
+ggplot(aes(x = trait, y = RMSE)) +
+  stat_interval(aes(color = after_stat(level)), position = position_dodge(width = .5)) + 
+  stat_summary(fun = median, geom = 'point', size = 2, position = position_dodge(width = .5)) +
+  geom_hline(yintercept = 1, linetype = 'dashed', linewidth = 1, color = 'gray50') +
+  ggtitle('ITS') +
+  scale_color_brewer(palette = 'Blues') +
+  theme(legend.position = 'bottom')  +
+  scale_x_discrete(labels = trait_names)
 ```
 
-These are remarkably high RMSEs, seeing as they are in standard deviation units. A null model should have RMSE = 1 standard deviation. It seems like microbiome does not predict traits. However the results are so poor that I am concerned there is an issue with how the model is being fit. 
-
-> If someone can give any critique on the model fitting part of this that could potentially improve the model performance, I would be interested to hear it!
-
-Ultimately, I think that regardless of what statistical method is used, it may be that the relationship between seed microbiome and traits of the resulting seedling is very dependent on the individual seed. Because we do not have any one-to-one correspondence between seed microbiome and seedling traits, we may not be able to say that much about this relationship. We just have a set of seeds with microbiome sampled, and a set of seeds with traits sampled. They do not come from the same individuals. Yes, some are siblings or at least half-siblings because they come from the same maternal plant. However if the relationship between microbiome and traits is dependent on what components of the maternal microbiome happened to make it into one particular seed, then our data cannot uncover that relationship no matter what we do.
+The RMSEs are in standard deviation units, and are at or above 1 for all traits. A null model should have RMSE = 1 standard deviation. It seems like microbiome does not predict traits. Ultimately, I think that regardless of what statistical method is used, it may be that the relationship between seed microbiome and traits of the resulting seedling is very dependent on the individual seed. Because we do not have any one-to-one correspondence between seed microbiome and seedling traits, we may not be able to say that much about this relationship. We just have a set of seeds with microbiome sampled, and a set of seeds with traits sampled. They do not come from the same individuals. Yes, some are siblings or at least half-siblings because they come from the same maternal plant. However if the relationship between microbiome and traits is dependent on what components of the maternal microbiome happened to make it into one particular seed, then our data cannot uncover that relationship no matter what we do.
 
 ## PLS
-
-> STILL WORK IN PROGRESS
 
 The neural network model may be a bit too data-hungry for the relatively small sample size that we have. Thus I will use PLS instead to try to simultaneously do dimension reduction on the microbiome matrix and look at any relationship with the multivariate seedling trait matrix.
 
 Here, for all 4000 of the posterior BLUP matrices for the traits, I conduct PLS regression with 3 components, regressing the trait matrix onto the microbiome matrix (this is done for both 16S and ITS). I conduct leave-one-out cross-validation by repeating this process 9 times, once with each of the 9 maternal plants left out. A prediction is generated for the 9th maternal plant. This prediction has 3 values for each of the 6 traits, using the first, the first two, and all three of the components to predict. I calculate the RMSE of the prediction. Then I plot the distribution of RMSEs across all 4000 posterior iterations for each trait, for each of the three predictions. 
 
-This code takes only a few minutes to run so I could run it on my laptop.
+This code takes a few minutes to run so I could run it on my laptop. Results are saved and reloaded to generate this notebook.
 
-```{r}
+```{r, eval = FALSE}
 # Define function to fit PLS using Leave-one-out cross-validation and return the RMSEs for each of the three components.
 fit_pls <- function(abundance_mat, trait_mat, n_components) {
   pls_loo_fits <- lapply(1:9, \(i) pls(X = abundance_mat[-i,], Y = trait_mat[-i,], ncomp = n_components, mode = 'regression'))
@@ -325,7 +331,14 @@ pls_rmses_16S <- cbind(iter = rep(1:dim(trait_post_blups)[1], each = n_component
 
 pls_rmses_ITS <- apply(trait_post_blups, 1, \(tmat) fit_pls(abundanceITS_agg_forfitting, tmat, n_components))
 pls_rmses_ITS <- cbind(iter = rep(1:dim(trait_post_blups)[1], each = n_components), do.call(rbind, pls_rmses_ITS))
+
+save(pls_rmses_16S, pls_rmses_ITS, file = 'project/fits/PLS_RMSE.RData')
 ```
+
+```{r}
+load('project/fits/PLS_RMSE.RData')
+```
+
 
 Show the distributions of the RMSEs as interval plots. The median RMSE is plotted as a black dot.
 
@@ -343,7 +356,8 @@ ggplot(pls_rmses_16S_long, aes(x = trait, y = RMSE)) +
   geom_hline(yintercept = 1, linetype = 'dashed', linewidth = 1, color = 'gray50') +
   ggtitle('16S') +
   scale_color_brewer(palette = 'Dark2', name = 'number of components used to predict') +
-  theme(legend.position = 'bottom') 
+  theme(legend.position = 'bottom') +
+  scale_x_discrete(labels = trait_names)
 
 pls_rmses_ITS_long <- melt(pls_rmses_ITS, id.vars = c('iter', 'component'), variable.name = 'trait', value.name = 'RMSE')
 pls_rmses_ITS_long[, component := factor(component)]
@@ -356,12 +370,11 @@ ggplot(pls_rmses_ITS_long, aes(x = trait, y = RMSE)) +
   geom_hline(yintercept = 1, linetype = 'dashed', linewidth = 1, color = 'gray50') +
   ggtitle('ITS') +
   scale_color_brewer(palette = 'Dark2', name = 'number of components used to predict') +
-  theme(legend.position = 'bottom')
+  theme(legend.position = 'bottom') +
+  scale_x_discrete(labels = trait_names)
 ```
 
-As you can see from the above plots for 16S, most of the prediction results are worse than the null model. In particular the median of the RMSE posterior distribution is well above 1 for all six traits. **Interpretation: When we fit a PLS model to 8/9 of the plants, relating their seedlings' aggregated microbiome to their seedlings' aggregated traits, and predict the held-out maternal plant's average seedling trait value using its average seedling microbiome, we get a worse result than if we had completely ignored microbiome and just made a naive prediction using the mean seedling trait values across all maternal plants.**
+As you can see from the above plots for 16S and ITS, most of the prediction results are worse than the null model. In particular the median of the RMSE posterior distribution is at or above 1 for all six traits. **Interpretation: When we fit a PLS model to 8/9 of the plants, relating their seedlings' aggregated microbiome to their seedlings' aggregated traits, and predict the held-out maternal plant's average seedling trait value using its average seedling microbiome, we get about the same result as if we had completely ignored microbiome and just made a naive prediction using the mean seedling trait values across all maternal plants.** I believe that having RMSE distributions centered around 1 or slightly above 1, as we do here, is consistent with there being no signal to retrieve from the microbiome data that has any relationship with the trait data. We get the same distribution we might expect by chance under the "null hypothesis" that microbiome doesn't predict traits.
 
-It is interesting to see that ITS has a far worse RMSE than 16S. The ITS predictions are extremely bad compared to the null value of RMSE = 1, whereas the 16S predictions are at least clustered slightly above that null value, and some mass of the RMSE posterior distributions are <1 (around 10-20% of iterations had RMSE<1 for 16S, while essentially none did for ITS).
-
-We also see that adding more components from the PLS to the prediction uniformly makes the prediction worse. This is yet another confirmation that there is not that much seedling trait signal in the seedling microbiome data.
+We also see that adding more components from the PLS to the prediction does not improve the prediction at all. This is yet another confirmation that there is not that much seedling trait signal in the seedling microbiome data.
 
