@@ -4,6 +4,7 @@
 library(brms)
 library(keras)
 library(data.table)
+library(mixOmics)
 
 options(brms.file_refit = 'on_change', brms.backend = 'cmdstanr', mc.cores = 4)
 
