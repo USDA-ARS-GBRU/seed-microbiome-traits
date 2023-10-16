@@ -45,6 +45,8 @@ options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
 abundance16S <- fread('project/data/16S_abundance.csv')
 abundanceITS <- fread('project/data/ITS_Abundance.csv')
 traits <- fread('project/data/seedling_data_updated.csv')
+
+trait_names <- c('Days to germinate', 'Leaf height (cm)', 'Rooting depth (cm)', 'Root tip count', 'Primary root count', 'Leaf count')
 ```
 
 
@@ -126,51 +128,51 @@ trait_post_blups_subsample <- trait_post_blups[sample(1:dim(trait_post_blups)[1]
 
 This uses the quick and dirty method of using the aggregated microbiome (sums of taxa counts) of all the offspring of each maternal plant to represent the maternal microbiome. This will be a reasonably good estimate of the "mean" microbiome from each maternal plant but will not account for the uncertainty resulting from us being only able to obliquely observe the maternal microbiome through sampling the microbiomes of its offspring. Later we may be able to come up with a method, using Aldex2 or some other means, to account for this uncertainty.
 
-Convert abundance data to longform and then create identifier columns for sample ID and maternal plant code. Sum the counts and then convert to a wideform with taxa as columns.
+As of 2023-10-16, the aggregation is done as follows:
+
+- Remove maternal plant J from the data as it has no seedling traits.
+- Remove any taxa that have all 0 abundance across all remaining microbiomes.
+- Do CLR transformation, first adding 1 to all counts.
+- Take the average log-ratio transformed value for each taxon, grouped by maternal plant.
 
 ```{r}
-abundance16S_long <- melt(abundance16S, id.vars = 'V1') 
-abundance16S_long[, maternal_plant_code := substr(variable, 3, 3)]
-abundance16S_long[, sampleID := substr(variable, 1, 2)]
+aggregate_abundance <- function(abundance) {
+  # Remove maternal plant J as it has no seedling traits.
+  J_columns <- grep('J$', names(abundance), value = TRUE)
+  abundance[, c(J_columns) := NULL]
+  
+  # Remove any taxa that now have all zero abundance in the remaining 9 maternal plants.
+  zero_rows <- rowSums(abundance[,-1]) == 0
+  abundance <- abundance[!zero_rows]
+  
+  # Do CLR transformation, adding 1 to all counts. Replace original values with transformed.
+  abundance_CLR <- logratio.transfo(abundance[,-1], logratio = 'CLR', offset = 1)
+  abundance_CLR <- cbind(abundance[, .(V1)], as(abundance_CLR, 'matrix'))
+  
+  # Reshape to longform
+  abundance_long <- melt(abundance_CLR, id.vars = 'V1') 
+  abundance_long[, maternal_plant_code := substr(variable, 3, 3)]
+  abundance_long[, sampleID := substr(variable, 1, 2)]
+  
+  # Aggregate by taking the average log ratio of each taxon grouped by maternal plant
+  abundance_agg <- abundance_long[, .(value = mean(value)), by = .(V1, maternal_plant_code)]
+  
+  # Return to wideform
+  abundance_agg_wide <- dcast(abundance_agg, maternal_plant_code ~ V1)
+}
 
-abundance16S_wide <- dcast(abundance16S_long,  maternal_plant_code + sampleID ~ V1)
-
-abundance16S_agg <- abundance16S_long[, .(value = sum(value)), by = .(V1, maternal_plant_code)]
-abundance16S_agg_wide <- dcast(abundance16S_agg,  maternal_plant_code ~ V1)
-
-abundanceITS <- abundanceITS[rowSums(abundanceITS[,-1]) > 0]
-
-abundanceITS_long <- melt(abundanceITS, id.vars = 'V1') 
-abundanceITS_long[, maternal_plant_code := substr(variable, 3, 3)]
-abundanceITS_long[, sampleID := substr(variable, 1, 2)]
-
-abundanceITS_wide <- dcast(abundanceITS_long,  maternal_plant_code + sampleID ~ V1)
-
-abundanceITS_agg <- abundanceITS_long[, .(value = sum(value)), by = .(V1, maternal_plant_code)]
-abundanceITS_agg_wide <- dcast(abundanceITS_agg,  maternal_plant_code ~ V1)
-```
-
-Subset the aggregated data to get rid of maternal plant J which does not have any offspring trait data. The result, after removing column 1 (maternal plant identifier) is a 9x1432 matrix for ITS and a 9x650 matrix for 16S.
-
-```{r}
-abundance16S_agg_forfitting <- abundance16S_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code, -1] |> as.matrix()
-abundanceITS_agg_forfitting <- abundanceITS_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code, -1] |> as.matrix()
-```
-
-We can further remove columns with all 0 counts; there are a few of them in each matrix after maternal plant J was removed. We end up with 9x1293 for 16S and 9x585 for ITS.
-
-```{r}
-abundance16S_agg_forfitting <- abundance16S_agg_forfitting[, colSums(abundance16S_agg_forfitting) > 0]
-abundanceITS_agg_forfitting <- abundanceITS_agg_forfitting[, colSums(abundanceITS_agg_forfitting) > 0] 
+# Do aggregation and strip off identifier column.
+abundance16S_agg_forfitting <- as.matrix(aggregate_abundance(abundance16S)[,-1])
+abundanceITS_agg_forfitting <- as.matrix(aggregate_abundance(abundanceITS)[,-1])
 ```
 
 ## Multi-output neural network model
 
 ### Fit the model with LOO cross-validation
 
-Some of the following code was adapted from [this post](https://www.datatechnotes.com/2020/01/multi-output-regression-example-with.html). First, we need to create a Keras model. Here it is a neural network with an input layer, an output layer, and one layer in between. The inputs are vectors of length 1432 (the microbiomes) and the outputs are vectors of length 6 (the traits). The model will be fit using the `keras` package which means that Python code is running behind the scenes, using the `reticulate` package to call Python from within R.
+Some of the following code was adapted from [this post](https://www.datatechnotes.com/2020/01/multi-output-regression-example-with.html). First, we need to create a Keras model. Here it is a neural network with an input layer, an output layer, and one layer in between. The inputs are vectors of length 1293 for 16S and length 585 for ITS (the microbiomes) and the outputs are vectors of length 6 (the traits). The model will be fit using the `keras` package which means that Python code is running behind the scenes, using the `reticulate` package to call Python from within R.
 
-Every iteration through this code, we redefine and recompile the model and fit a multi-output neural network model for a single posterior sample (a slice from the three dimensional array, which is a 9x6 matrix). Due to the small sample size, we do leave-one-out cross-validation on the model (use 8 of 9 maternal microbiomes, or 8x1432 matrix, to fit the model and predict the 9th, repeat until all 9 are predicted). 
+Every iteration through this code, we redefine and recompile the model and fit a multi-output neural network model for a single posterior sample (a slice from the three dimensional array, which is a 9x6 matrix). Due to the small sample size, we do leave-one-out cross-validation on the model (use 8 of 9 maternal microbiomes, which is a 8x1293 matrix for 16S or 8x585 matrix for ITS, to fit the model and predict the 9th, repeat until all 9 are predicted). 
 
 We have two nested loops, the outer loop for the number of trait MC samples we are repeating the model fit for (100), and the inner loop to loop through the rows of the MC sample to do leave-one-out cross-validation. We return the observed and predicted values in each case.
 

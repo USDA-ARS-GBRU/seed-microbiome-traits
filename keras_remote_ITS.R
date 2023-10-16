@@ -35,20 +35,33 @@ pred_grid <- unique(traits_std[, .(maternal_plant_code, country_origin)])
 
 trait_post_blups <- predict(mv_trait_fit, newdata = pred_grid, summary = FALSE)
 
-abundanceITS <- abundanceITS[rowSums(abundanceITS[,-1]) > 0]
+aggregate_abundance <- function(abundance) {
+  # Remove maternal plant J as it has no seedling traits.
+  J_columns <- grep('J$', names(abundance), value = TRUE)
+  abundance[, c(J_columns) := NULL]
+  
+  # Remove any taxa that now have all zero abundance in the remaining 9 maternal plants.
+  zero_rows <- rowSums(abundance[,-1]) == 0
+  abundance <- abundance[!zero_rows]
+  
+  # Do CLR transformation, adding 1 to all counts. Replace original values with transformed.
+  abundance_CLR <- logratio.transfo(abundance[,-1], logratio = 'CLR', offset = 1)
+  abundance_CLR <- cbind(abundance[, .(V1)], as(abundance_CLR, 'matrix'))
+  
+  # Reshape to longform
+  abundance_long <- melt(abundance_CLR, id.vars = 'V1') 
+  abundance_long[, maternal_plant_code := substr(variable, 3, 3)]
+  abundance_long[, sampleID := substr(variable, 1, 2)]
+  
+  # Aggregate by taking the average log ratio of each taxon grouped by maternal plant
+  abundance_agg <- abundance_long[, .(value = mean(value)), by = .(V1, maternal_plant_code)]
+  
+  # Return to wideform
+  abundance_agg_wide <- dcast(abundance_agg, maternal_plant_code ~ V1)
+}
 
-abundanceITS_long <- melt(abundanceITS, id.vars = 'V1') 
-abundanceITS_long[, maternal_plant_code := substr(variable, 3, 3)]
-abundanceITS_long[, sampleID := substr(variable, 1, 2)]
-
-abundanceITS_wide <- dcast(abundanceITS_long,  maternal_plant_code + sampleID ~ V1)
-
-abundanceITS_agg <- abundanceITS_long[, .(value = sum(value)), by = .(V1, maternal_plant_code)]
-abundanceITS_agg_wide <- dcast(abundanceITS_agg,  maternal_plant_code ~ V1)
-
-abundanceITS_agg_forfitting <- as.matrix(abundanceITS_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code, -1])
-
-abundanceITS_agg_forfitting <- abundanceITS_agg_forfitting[, colSums(abundanceITS_agg_forfitting) > 0] 
+# Do aggregation and strip off identifier column.
+abundanceITS_agg_forfitting <- as.matrix(aggregate_abundance(abundanceITS)[,-1])
 
 set.seed(1104)
 n_samples <- 100

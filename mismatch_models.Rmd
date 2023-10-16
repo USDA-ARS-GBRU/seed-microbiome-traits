@@ -39,6 +39,7 @@ library(ggplot2)
 library(ranger)
 library(purrr)
 library(ALDEx2)
+library(mixOmics)
 
 options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
 
@@ -114,35 +115,46 @@ trait_post_blups <- map2(trait_fits, pred_grids, ~ predict(.x, newdata = .y, sum
 
 This is a "quick and dirty" method. Aggregate the microbiome samples by maternal plant by summing the counts up. This will be a reasonably good estimate of the "mean" microbiome from each maternal plant but will not account for the uncertainty resulting from us being only able to obliquely observe the maternal microbiome through sampling the microbiomes of its offspring.
 
-Convert abundance data to longform and then create identifier columns for sample ID and maternal plant code. Remove maternal plant J, which does not have any seedling trait data. Sum the counts, then remove all taxa with 0 abundance across all samples. Finally convert to a wideform with taxa as columns. Repeat this for 16S and ITS abundance. 
+As of 2023-10-16, the aggregation is done as follows:
+
+- Remove maternal plant J from the data as it has no seedling traits.
+- Remove any taxa that have all 0 abundance across all remaining microbiomes.
+- Do CLR transformation, first adding 1 to all counts.
+- Take the average log-ratio transformed value for each taxon, grouped by maternal plant.
+
 
 ```{r}
-abundance16S_long <- melt(abundance16S, id.vars = 'V1') 
-abundance16S_long[, maternal_plant_code := substr(variable, 3, 3)]
-abundance16S_long[, sampleID := substr(variable, 1, 2)]
+aggregate_abundance <- function(abundance) {
+  # Remove maternal plant J as it has no seedling traits.
+  J_columns <- grep('J$', names(abundance), value = TRUE)
+  abundance[, c(J_columns) := NULL]
+  
+  # Remove any taxa that now have all zero abundance in the remaining 9 maternal plants.
+  zero_rows <- rowSums(abundance[,-1]) == 0
+  abundance <- abundance[!zero_rows]
+  
+  # Do CLR transformation, adding 1 to all counts. Replace original values with transformed.
+  abundance_CLR <- logratio.transfo(abundance[,-1], logratio = 'CLR', offset = 1)
+  abundance_CLR <- cbind(abundance[, .(V1)], as(abundance_CLR, 'matrix'))
+  
+  # Reshape to longform
+  abundance_long <- melt(abundance_CLR, id.vars = 'V1') 
+  abundance_long[, maternal_plant_code := substr(variable, 3, 3)]
+  abundance_long[, sampleID := substr(variable, 1, 2)]
+  
+  # Aggregate by taking the average log ratio of each taxon grouped by maternal plant
+  abundance_agg <- abundance_long[, .(value = mean(value)), by = .(V1, maternal_plant_code)]
+  
+  # Return to wideform
+  abundance_agg_wide <- dcast(abundance_agg, maternal_plant_code ~ V1)
+}
 
-abundance16S_long <- abundance16S_long[maternal_plant_code %in% pred_grids[[1]]$maternal_plant_code]
-
-abundance16S_wide <- dcast(abundance16S_long,  maternal_plant_code + sampleID ~ V1)
-
-abundance16S_agg <- abundance16S_long[, .(value = sum(value)), by = .(V1, maternal_plant_code)]
-abundance16S_agg_forfitting <- dcast(abundance16S_agg,  maternal_plant_code ~ V1)
-
-abundanceITS <- abundanceITS[rowSums(abundanceITS[,-1]) > 0]
-
-abundanceITS_long <- melt(abundanceITS, id.vars = 'V1') 
-abundanceITS_long[, maternal_plant_code := substr(variable, 3, 3)]
-abundanceITS_long[, sampleID := substr(variable, 1, 2)]
-
-abundanceITS_long <- abundanceITS_long[maternal_plant_code %in% pred_grids[[1]]$maternal_plant_code]
-
-abundanceITS_wide <- dcast(abundanceITS_long,  maternal_plant_code + sampleID ~ V1)
-
-abundanceITS_agg <- abundanceITS_long[, .(value = sum(value)), by = .(V1, maternal_plant_code)]
-abundanceITS_agg_forfitting <- dcast(abundanceITS_agg,  maternal_plant_code ~ V1)
+# Do aggregation, retaining identifier column.
+abundance16S_agg_forfitting <- aggregate_abundance(abundance16S)
+abundanceITS_agg_forfitting <- aggregate_abundance(abundanceITS)
 ```
 
-Define function to fit the random forest for a single posterior sample. Specify which 
+Define function to fit the random forest for a single posterior sample, passing in the predicted trait value and which microbiome is being used. 
 
 ```{r}
 fit_rf <- function(y, pred_grid, abundance_dt) {
@@ -160,7 +172,7 @@ Apply the function to a random subset of 100 of the posterior samples.
 
 ```{r}
 set.seed(1104)
-trait_post_blups_subsample <- map(trait_post_blups, ~ .[sample(1:nrow(.), 100), ])
+trait_post_blups_subsample <- purrr::map(trait_post_blups, ~ .[sample(1:nrow(.), 100), ])
 post_rf_fits_16S <- map2(trait_post_blups_subsample, pred_grids, ~ apply(.x, 1, fit_rf, pred_grid = .y, abundance_dt = abundance16S_agg_forfitting))
 post_rf_fits_ITS <- map2(trait_post_blups_subsample, pred_grids, ~ apply(.x, 1, fit_rf, pred_grid = .y, abundance_dt = abundanceITS_agg_forfitting))
 ```

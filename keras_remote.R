@@ -7,7 +7,7 @@ library(data.table)
 
 options(brms.file_refit = 'on_change', brms.backend = 'cmdstanr', mc.cores = 4)
 
-abundance <- fread('project/data/16S_abundance.csv')
+abundance16S <- fread('project/data/16S_abundance.csv')
 traits <- fread('project/data/seedling_data_updated.csv')
 
 mv_traits <- c("days_to_germinate", "leaf_height_cm", "rooting_depth_cm", "root_tip_count", "no_primary_roots", "no_leaves")
@@ -35,18 +35,33 @@ pred_grid <- unique(traits_std[, .(maternal_plant_code, country_origin)])
 
 trait_post_blups <- predict(mv_trait_fit, newdata = pred_grid, summary = FALSE)
 
-abundance_long <- melt(abundance, id.vars = 'V1') 
-abundance_long[, maternal_plant_code := substr(variable, 3, 3)]
-abundance_long[, sampleID := substr(variable, 1, 2)]
+aggregate_abundance <- function(abundance) {
+  # Remove maternal plant J as it has no seedling traits.
+  J_columns <- grep('J$', names(abundance), value = TRUE)
+  abundance[, c(J_columns) := NULL]
+  
+  # Remove any taxa that now have all zero abundance in the remaining 9 maternal plants.
+  zero_rows <- rowSums(abundance[,-1]) == 0
+  abundance <- abundance[!zero_rows]
+  
+  # Do CLR transformation, adding 1 to all counts. Replace original values with transformed.
+  abundance_CLR <- logratio.transfo(abundance[,-1], logratio = 'CLR', offset = 1)
+  abundance_CLR <- cbind(abundance[, .(V1)], as(abundance_CLR, 'matrix'))
+  
+  # Reshape to longform
+  abundance_long <- melt(abundance_CLR, id.vars = 'V1') 
+  abundance_long[, maternal_plant_code := substr(variable, 3, 3)]
+  abundance_long[, sampleID := substr(variable, 1, 2)]
+  
+  # Aggregate by taking the average log ratio of each taxon grouped by maternal plant
+  abundance_agg <- abundance_long[, .(value = mean(value)), by = .(V1, maternal_plant_code)]
+  
+  # Return to wideform
+  abundance_agg_wide <- dcast(abundance_agg, maternal_plant_code ~ V1)
+}
 
-abundance_wide <- dcast(abundance_long,  maternal_plant_code + sampleID ~ V1)
-
-abundance_agg <- abundance_long[, .(value = sum(value)), by = .(V1, maternal_plant_code)]
-abundance_agg_wide <- dcast(abundance_agg,  maternal_plant_code ~ V1)
-
-abundance_agg_forfitting <- as.matrix(abundance_agg_wide[maternal_plant_code %in% pred_grid$maternal_plant_code, -1])
-
-abundance_agg_forfitting <- abundance_agg_forfitting[, colSums(abundance_agg_forfitting) > 0]
+# Do aggregation and strip off identifier column.
+abundance16S_agg_forfitting <- as.matrix(aggregate_abundance(abundance16S)[,-1])
 
 set.seed(1104)
 n_samples <- 100
@@ -60,7 +75,7 @@ for (i in 1:n_samples) {
   for (j in 1:nrow(pred_grid)) {
     # Define and compile model.
     nnetmodel <- keras_model_sequential() |>
-      layer_dense(units = 100, activation = 'relu', input_shape = dim(abundance_agg_forfitting)[2]) |>
+      layer_dense(units = 100, activation = 'relu', input_shape = dim(abundance16S_agg_forfitting)[2]) |>
       layer_dropout(rate = 0.3) |>
       layer_dense(units = 32, activation = 'relu') |>
       layer_dropout(rate = 0.3) |>
@@ -69,8 +84,8 @@ for (i in 1:n_samples) {
     nnetmodel |> compile(loss = 'mse', optimizer = 'adam')
     
     # Create train and test split with just a single holdout row and the rest used for fitting.
-    ab_train <- abundance_agg_forfitting[-j, ]
-    ab_test <- abundance_agg_forfitting[j, , drop = FALSE]
+    ab_train <- abundance16S_agg_forfitting[-j, ]
+    ab_test <- abundance16S_agg_forfitting[j, , drop = FALSE]
     trait_train <- trait_post_blups_subsample[i, -j, ]
     trait_test <- t(as.matrix(trait_post_blups_subsample[i, j, ]))
     
