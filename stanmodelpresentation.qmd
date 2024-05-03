@@ -5,20 +5,54 @@ format:
   revealjs:
     embed-resources: true
     transition: slide
-    theme: [default, qtheme.scss]
+engine: knitr
 ---
 
 
 ## The problem
 
 - We have maternal plants from different populations
-- We want to measure the association between seedling traits and seed microbiome in the offspring of these maternal plants
+- We want to measure the association between seedling traits and seed microbiome in their offspring
   + And whether this association is different by population but that's just an extra wrinkle
+
+:::: {.columns}
+
+::: {.column}
+
+![](https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Flag_of_Afghanistan_%282013%E2%80%932021%29.svg/800px-Flag_of_Afghanistan_%282013%E2%80%932021%29.svg.png)
+
+:::
+
+::: {.column}
+
+![](https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/Flag_of_Turkey.svg/800px-Flag_of_Turkey.svg.png)
+
+:::
+
+::::
+
+
 
 ## The problem
 
 - But it is not possible to observe seed microbiome and seedling traits for the same seed
 - The seed can either be germinated to measure traits, or destroyed to measure microbiome, but not both
+
+:::: {.columns}
+
+::: {.column}
+
+![](https://upload.wikimedia.org/wikipedia/commons/thumb/1/10/Eierkarton_10_%28fcm%29.jpg/740px-Eierkarton_10_%28fcm%29.jpg)
+
+:::
+
+::: {.column}
+
+![](https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Fried_Egg_2.jpg/800px-Fried_Egg_2.jpg)
+
+:::
+
+::::
 
 ## How to resolve the problem
 
@@ -39,6 +73,9 @@ format:
 - $\mathbf{X}$: a matrix of CLR-transformed seed microbiome taxon abundances with dimensions $N_m \times D$ 
   + $N_m$: number of offspring for which microbiomes were measured
   + $D$: number of taxa in the microbiome dataset
+  
+## The data, continued
+
 - $\mathbf{p}$: a vector of covariates at maternal plant level (here it is just population of origin) with length $M$
   + $M$: number of maternal plants
 - $\mathbf{M}_{t}$: a vector of length $N_t$ assigning maternal plant to each seedling with traits 
@@ -50,6 +87,9 @@ format:
 - $\mathbf{X}_M$: matrix with dimensions $M \times D$, latent unobserved seed microbiome of average offspring of each mother
 - $\sigma_{yM}$: standard deviation of traits across seedlings
 - $\Sigma_{XM}$: covariance matrix of seed microbiomes
+
+## The parameters, continued
+
 - $\beta_0$: intercept of trait regression
 - $\beta_{pop}$: main effect of population on trait
 - $\beta_{tax}$: vector of length $D$, main effect of each taxon on trait
@@ -74,7 +114,7 @@ format:
 
 - Everything I explained before, plus priors on the parameters
 
-```{stan, eval = FALSE}
+```
 // Multivariate microbiome by single trait model
 // QDR 2024-05-02
 
@@ -139,17 +179,57 @@ model {
 
 ## Fit model to Alicia's data
 
-- For testing purposes, a subset of 100 of the >1200 taxa were selected
+- For testing purposes, a subset of 10 of the >1200 taxa were selected
 - Rooting depth is used as the trait
 - Total 63 seed microbiomes and 50 rooting depth values, from 9 maternal plants across 2 populations
 
+## Results
+
+- The model produces numbers, which is good, I guess? 
+- Here are the first few rows of parameter estimates
+  + (Note all the regression parameter estimates are close to 0)
+
+```
+  variable             mean    median     sd    mad      q5       q95  rhat ess_bulk ess_tail
+   <chr>               <dbl>     <dbl>  <dbl>  <dbl>   <dbl>     <dbl> <dbl>    <dbl>    <dbl>
+ 1 lp__          -34.4       -34.1     11.7   12.5   -54.7   -16.6      1.01     501.    506. 
+ 2 b0             -0.321      -0.266    2.61   2.42   -4.56    3.84     1.01    1301.   3463. 
+ 3 b_pop           0.0616      0.00204  5.04   4.79   -8.09    8.38     1.00    1050.   1768. 
+ 4 b_tax[1]       -0.202      -0.0640   9.01   8.68  -15.5    14.5      1.00    1585.   2775. 
+ 5 b_tax[2]       -0.0897     -0.156    6.57   6.06  -10.4    10.8      1.01     872.   2115. 
+ 6 b_tax[3]       -0.126      -0.348    3.06   2.52   -5.01    5.18     1.00    1431.   1642. 
+ 7 b_tax[4]        0.275       0.234    5.92   5.34   -9.73    9.92     1.01    1059.   1529. 
+ 8 b_tax[5]        0.0626     -0.219    8.75   8.38  -14.3    14.5      1.00    4529.   4495. 
+ 9 b_tax[6]       -0.278      -0.378    9.28   9.68  -14.9    14.8      1.01     845.   1892. 
+10 b_tax[7]        0.650       0.397    8.43   8.23  -13.0    15.0      1.02     234.     77.8
+11 b_tax[8]        0.344       0.464    5.87   5.41   -9.26   10.2      1.00    3381.   5214. 
+12 b_tax[9]        0.498       0.623    6.31   6.00   -9.69   10.6      1.01     908.   3962. 
+13 b_tax[10]      -0.0318     -0.0688   4.30   3.70   -7.08    6.80     1.01    2033.   3064. 
+14 b_tax_pop[1]    0.0244      0.384    9.49   9.76  -15.8    15.0      1.01    1222.   5599. 
+15 b_tax_pop[2]    0.513       0.608    9.53   8.82  -15.0    17.3      1.02     433.     78.3
+16 b_tax_pop[3]   -0.455      -0.393    7.09   6.56  -12.7    11.5      1.01     487.    222. 
+17 b_tax_pop[4]    0.906       1.33     7.89   7.59  -12.3    13.7      1.00    2262.   4013. 
+18 b_tax_pop[5]   -0.470      -0.634    9.52   9.25  -16.2    15.1      1.00    1611.   1743. 
+19 b_tax_pop[6]   -0.742      -0.370    9.71   9.80  -18.5    15.0      1.01     357.    108. 
+20 b_tax_pop[7]   -0.0000176  -0.0125   8.91   8.75  -14.0    14.4      1.01    1062.   2898. 
+21 b_tax_pop[8]   -0.0345     -0.249    9.00   8.71  -14.7    15.0      1.00    2088.   2716. 
+22 b_tax_pop[9]   -0.949      -0.920    9.51   9.47  -16.4    14.8      1.01     345.    468. 
+23 b_tax_pop[10]  -0.394      -0.466    7.03   6.86  -11.5    11.0      1.01    1127.   1551. 
+24 y_M[1]         -0.280      -0.279    0.198  0.191  -0.601   0.0487   1.00    1681.   2529. 
+25 y_M[2]         -1.06       -1.07     0.256  0.257  -1.47   -0.630    1.01     833.   1833. 
+26 y_M[3]         -0.479      -0.475    0.486  0.476  -1.29    0.406    1.02     266.     73.8
+27 y_M[4]         -0.116      -0.118    0.250  0.254  -0.532   0.293    1.01     484.    207. 
+28 y_M[5]         -0.553      -0.551    0.263  0.251  -1.00   -0.124    1.01    1040.    672. 
+29 y_M[6]         -0.795      -0.772    0.498  0.441  -1.69    0.00997  1.02     209.     63.2
+30 y_M[7]          1.39        1.39     0.216  0.222   1.06    1.77     1.01     534.    594. 
+```
+
 ## Future directions
 
-- The model could be extended to multivariate trait outcomes, *at least in theory*
-- It could also be extended to include interactions between taxa, *at least in theory*
+- The model could be extended to multivariate trait outcomes and interactions between taxa, *at least in theory*
 - A major issue is scaling up the model
-  + I have only tested this on a randomly selected subset of 10 taxa from Alicia's dataset, which only has a few dozen individuals
-  + It only took a few minutes to sample the model but this will increase more than linearly as community size increases
+  + Only tested this on a random subset of 10 taxa from a few dozen individual plants
+  + It only took a few minutes to sample the model but this will blow up as community size increases
   + Full Bayesian computation on anything much bigger than that is going to be very tough
   
 ## Future directions, continued
