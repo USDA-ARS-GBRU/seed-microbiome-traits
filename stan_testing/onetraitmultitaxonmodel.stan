@@ -28,25 +28,21 @@ parameters {
 	real<lower=0> sigma;                            // Variation (SD) of model residuals
 }
 
-transformed parameters {
-  
-}
-
 model {
   // Priors
-  b0 ~ normal(0, 10);                             // Prior on intercept 
-  b_pop ~ normal(0, 10);                          // Fixed effects of population, taxon abundance, and their interactions
+  b0 ~ normal(0, 10);                             // Fixed effects get normal priors
+  b_pop ~ normal(0, 10);                          
   b_tax ~ normal(0, 10);
   b_tax_pop ~ normal(0, 10);
-  y_M ~ normal(0, 10);                            // Mean traits at maternal plant level
+  y_M ~ normal(0, 10);                            // Maternal plant level intercepts for traits and taxon abundances get normal priors
   for (i in 1:M) {
-    X_M[i] ~ normal(0, 10);                       // Mean taxon abundances at maternal plant level
+    X_M[i] ~ normal(0, 10);                       
   }
-  sigma_yM ~ exponential(1);                      // SD of trait means of maternal plants
-  Omega_xM ~ lkj_corr(2);                         // Correlation matrix of taxon abundances for each maternal plant
-  tau ~ cauchy(0, 2.5);                           // Scale correlation matrix to v-cv matrix
-  sigma ~ exponential(1);                         // SD of model residuals
-  
+  sigma_yM ~ exponential(1);                      // SD parameters get exponential priors (must be >0)
+  sigma ~ exponential(1); 
+  tau ~ cauchy(0, 2.5);                           // Scaling parameters of covariance matrix get half-Cauchy priors (must be >0)                    
+  Omega_xM ~ lkj_corr(2);                         // Correlation matrix gets an LKJ prior (see http://stla.github.io/stlapblog/posts/StanLKJprior.html)
+
   // Likelihood
   // Trait of each offspring is drawn from a normal distribution with mean being the mean trait of its mother
   for (i in 1:Ntrait) {

@@ -41,9 +41,9 @@ data_root[, rooting_depth_std := as.vector(scale(rooting_depth_cm))]
 
 maternal_plants <- unique(data_root[, .(maternal_plant_code, country_origin)])
 
-### Here take a random sample of 10 taxa for testing.
-CLR_16S_sample <- CLR_16S_array[, c(347L, 585L, 1199L, 999L, 1076L, 35L, 1037L, 1268L, 549L, 1231L
-)]
+### Here take a random sample of 100 taxa for testing.
+set.seed(131)
+CLR_16S_sample <- CLR_16S_array[, sample(1:ncol(CLR_16S_array), size = 10)]
 
 stan_data_root_16S_test <- list(
   Nmicro = nrow(CLR_16S_sample),
