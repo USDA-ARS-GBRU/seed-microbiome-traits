@@ -7,9 +7,9 @@ library(cmdstanr)
 options(mc.cores=4)
 
 # Import data. Corrected labels, data accessed from g drive 2023-06-06
-abundance16S <- fread('project/data/16S_abundance.csv')
-abundanceITS <- fread('project/data/ITS_Abundance.csv')
-traits <- fread('project/data/seedling_data_updated.csv')
+abundance16S <- fread('data/16S_abundance.csv')
+abundanceITS <- fread('data/ITS_Abundance.csv')
+traits <- fread('data/seedling_data_updated.csv')
 
 CLR_abundance <- function(abundance) {
   # Remove maternal plant J as it has no seedling traits.
@@ -41,7 +41,7 @@ data_root[, rooting_depth_std := as.vector(scale(rooting_depth_cm))]
 
 maternal_plants <- unique(data_root[, .(maternal_plant_code, country_origin)])
 
-### Here take a random sample of 100 taxa for testing.
+### Here take a random sample of 10 taxa for testing.
 set.seed(131)
 CLR_16S_sample <- CLR_16S_array[, sample(1:ncol(CLR_16S_array), size = 10)]
 

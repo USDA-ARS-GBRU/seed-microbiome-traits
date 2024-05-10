@@ -19,6 +19,5 @@ slurm-*.out
 # Figure directory
 figs/
 
-# Symlink to data and project directories
-data
+# Symlink to project directory
 project
