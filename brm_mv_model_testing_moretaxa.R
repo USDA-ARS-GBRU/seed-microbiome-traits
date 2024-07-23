@@ -84,22 +84,25 @@ modmv_nomiss_reghorseshoe <- brm(
 # Model with missing data -------------------------------------------------
 
 # With regularized horseshoe prior on fixed effects.
+
+# Construct sd and sigma priors programmatically.
+sd_Xmiss_priors <- lapply(1:n_taxa, function(i) prior_string('gamma(1, 1)', class = 'sd', resp = paste0('Xmiss', i)))
+sd_Xmiss_priors <- do.call(c, sd_Xmiss_priors)
+sigma_Xmiss_priors <- lapply(1:n_taxa, function(i) prior_string('gamma(1, 1)', class = 'sigma', resp = paste0('Xmiss', i)))
+sigma_Xmiss_priors <- do.call(c, sigma_Xmiss_priors)
+
+# Also construct formula programmatically.
+Xmiss_formula <- paste0('mvbind(', paste(paste0('Xmiss', 1:n_taxa), collapse = ','), ') | mi() ~ (1|p|maternal_id)')
+ymiss_formula <- paste0('ymiss | mi() ~ ', paste(paste0('mi(Xmiss', 1:n_taxa, ')'), collapse = '+'), ' + (1|maternal_id)')
+
 modmv_miss_reghorseshoe <- brm(
-  bf(mvbind(Xmiss1, Xmiss2, Xmiss3, Xmiss4, Xmiss5) | mi() ~ (1|p|maternal_id)) + bf(ymiss | mi() ~ mi(Xmiss1) + mi(Xmiss2) + mi(Xmiss3) + mi(Xmiss4) + mi(Xmiss5) + (1|maternal_id)) + set_rescor(TRUE),
+  bf(Xmiss_formula) + bf(ymiss_formula) + set_rescor(TRUE),
   prior = c(
-    prior(gamma(1, 1), class = sd, resp = Xmiss1), 
-    prior(gamma(1, 1), class = sd, resp = Xmiss2), 
-    prior(gamma(1, 1), class = sd, resp = Xmiss3), 
-    prior(gamma(1, 1), class = sd, resp = Xmiss4), 
-    prior(gamma(1, 1), class = sd, resp = Xmiss5), 
+    sd_Xmiss_priors,
+    sigma_Xmiss_priors,
     prior(gamma(1, 1), class = sd, resp = ymiss),
-    prior(gamma(1, 1), class = sigma, resp = Xmiss1), 
-    prior(gamma(1, 1), class = sigma, resp = Xmiss2), 
-    prior(gamma(1, 1), class = sigma, resp = Xmiss3), 
-    prior(gamma(1, 1), class = sigma, resp = Xmiss4), 
-    prior(gamma(1, 1), class = sigma, resp = Xmiss5), 
     prior(gamma(1, 1), class = sigma, resp = ymiss),
-    prior(horseshoe(df = 3, df_global = 1, scale_slab = 2, df_slab = 4, par_ratio = 2/3), class = b, resp = ymiss)
+    prior(horseshoe(df = 3, df_global = 1, scale_slab = 2, df_slab = 4, par_ratio = 0.1), class = b, resp = ymiss)
   ),
   data = dt,
   chains = 4, iter = 2000, warmup = 1000,
