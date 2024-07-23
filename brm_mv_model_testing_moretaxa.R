@@ -1,0 +1,107 @@
+# Simulate multivariate normal data in two levels: maternal taxa abundance means are MVN, 
+# then offspring taxa abundance means are MVN from that.
+
+library(mvtnorm)
+library(brms)
+
+options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
+
+# Increase number of taxa
+n_mothers <- 10
+n_taxa <- 200
+offspring_per_mother <- 10 # 5 will be retained for traits, 5 for microbiome
+
+set.seed(1)
+
+X_maternal <- rmvnorm(n_mothers, mean = rep(0, n_taxa), sigma = diag(n_taxa))
+sigma_maternal <- cov(X_maternal)
+
+# Coefficients indicating which taxa predict the outcome.
+# We will not include any interaction effect.
+# Only include a few taxa with a nonzero effect.
+beta <- c(10, 10, -10, rep(0, n_taxa-3))
+
+y_maternal <- 10 + X_maternal %*% beta + rnorm(n_mothers, 0, 1)
+
+# To get offspring microbiome, take mvnorm draws from the mean vector for each mother (rows of X_maternal)
+# using the same covariance matrix every time.
+
+X_offspring <- apply(X_maternal, 1, function(Xi) rmvnorm(offspring_per_mother, mean = Xi, sigma = sigma_maternal), simplify = FALSE)
+y_offspring <- rnorm(offspring_per_mother * n_mothers, mean = rep(y_maternal, offspring_per_mother), sd = 1)
+
+# Combine together
+dt <- data.frame(
+  maternal_id = factor(rep(1:n_mothers, each = offspring_per_mother)),
+  offspring_id = 1:offspring_per_mother,
+  do.call(rbind, X_offspring),
+  y = y_offspring
+)
+
+# Within each mother, set half of the values to be missing for x, and the other half for y.
+xmiss <- lapply(1:nrow(dt), function(i) {
+  if (dt[i, 'offspring_id'] %in% 1:(offspring_per_mother/2)) {
+    setNames(dt[i, paste0('X', 1:n_taxa)], paste0('Xmiss',1:n_taxa))
+  } else {
+    setNames(rep(NA, n_taxa), paste0('Xmiss', 1:n_taxa))
+  }
+})
+dt <- cbind(dt, do.call(rbind, xmiss))
+dt$ymiss <- ifelse(dt$offspring_id %in% 1:(offspring_per_mother/2), NA, dt$y)
+
+
+# Model without missing data ----------------------------------------------
+
+# Model without missing data, including regularized horseshoe prior
+# Let's see if the coefficients can be recovered.
+# Interactions between taxa aren't included.
+
+# Construct priors programmatically because we have one for each taxon.
+sd_X_priors <- lapply(1:n_taxa, function(i) prior_string('gamma(1, 1)', class = 'sd', resp = paste0('X', i)))
+sd_X_priors <- do.call(c, sd_X_priors)
+sigma_X_priors <- lapply(1:n_taxa, function(i) prior_string('gamma(1, 1)', class = 'sigma', resp = paste0('X', i)))
+sigma_X_priors <- do.call(c, sigma_X_priors)
+
+# Also construct formula programmatically.
+X_formula <- paste0('mvbind(', paste(paste0('X',1:n_taxa), collapse = ','), ') ~ (1|p|maternal_id)')
+y_formula <- paste0('y ~ ', paste(paste0('X',1:n_taxa), collapse = '+'), ' + (1|maternal_id)')
+
+modmv_nomiss_reghorseshoe <- brm(
+  bf(X_formula) + bf(y_formula) + set_rescor(TRUE),
+  prior = c(
+    sd_X_priors,
+    sigma_X_priors,
+    prior(gamma(1, 1), class = sd, resp = y),
+    prior(gamma(1, 1), class = sigma, resp = y),
+    prior(horseshoe(df = 3, df_global = 1, scale_slab = 2, df_slab = 4, par_ratio = 0.1), class = b, resp = y) 
+  ),
+  data = dt,
+  chains = 4, iter = 2000, warmup = 1000,
+  init = 0, seed = 1240,
+  file = 'project/fits/brmtest_mv_nomiss_reghorseshoe_widedata'
+)
+
+
+# Model with missing data -------------------------------------------------
+
+# With regularized horseshoe prior on fixed effects.
+modmv_miss_reghorseshoe <- brm(
+  bf(mvbind(Xmiss1, Xmiss2, Xmiss3, Xmiss4, Xmiss5) | mi() ~ (1|p|maternal_id)) + bf(ymiss | mi() ~ mi(Xmiss1) + mi(Xmiss2) + mi(Xmiss3) + mi(Xmiss4) + mi(Xmiss5) + (1|maternal_id)) + set_rescor(TRUE),
+  prior = c(
+    prior(gamma(1, 1), class = sd, resp = Xmiss1), 
+    prior(gamma(1, 1), class = sd, resp = Xmiss2), 
+    prior(gamma(1, 1), class = sd, resp = Xmiss3), 
+    prior(gamma(1, 1), class = sd, resp = Xmiss4), 
+    prior(gamma(1, 1), class = sd, resp = Xmiss5), 
+    prior(gamma(1, 1), class = sd, resp = ymiss),
+    prior(gamma(1, 1), class = sigma, resp = Xmiss1), 
+    prior(gamma(1, 1), class = sigma, resp = Xmiss2), 
+    prior(gamma(1, 1), class = sigma, resp = Xmiss3), 
+    prior(gamma(1, 1), class = sigma, resp = Xmiss4), 
+    prior(gamma(1, 1), class = sigma, resp = Xmiss5), 
+    prior(gamma(1, 1), class = sigma, resp = ymiss),
+    prior(horseshoe(df = 3, df_global = 1, scale_slab = 2, df_slab = 4, par_ratio = 2/3), class = b, resp = ymiss)
+  ),
+  data = dt,
+  chains = 4, iter = 2000, warmup = 1000,
+  file = 'project/fits/brmtest_mv_miss_reghorseshoe_widedata'
+)
