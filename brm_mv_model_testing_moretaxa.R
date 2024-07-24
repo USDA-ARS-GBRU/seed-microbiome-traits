@@ -66,7 +66,7 @@ X_formula <- paste0('mvbind(', paste(paste0('X',1:n_taxa), collapse = ','), ') ~
 y_formula <- paste0('y ~ ', paste(paste0('X',1:n_taxa), collapse = '+'), ' + (1|maternal_id)')
 
 modmv_nomiss_reghorseshoe <- brm(
-  bf(X_formula) + bf(y_formula) + set_rescor(TRUE),
+  bf(X_formula) + bf(y_formula) + set_rescor(FALSE),
   prior = c(
     sd_X_priors,
     sigma_X_priors,
@@ -96,7 +96,7 @@ Xmiss_formula <- paste0('mvbind(', paste(paste0('Xmiss', 1:n_taxa), collapse = '
 ymiss_formula <- paste0('ymiss | mi() ~ ', paste(paste0('mi(Xmiss', 1:n_taxa, ')'), collapse = '+'), ' + (1|maternal_id)')
 
 modmv_miss_reghorseshoe <- brm(
-  bf(Xmiss_formula) + bf(ymiss_formula) + set_rescor(TRUE),
+  bf(Xmiss_formula) + bf(ymiss_formula) + set_rescor(FALSE),
   prior = c(
     sd_Xmiss_priors,
     sigma_Xmiss_priors,
@@ -106,5 +106,6 @@ modmv_miss_reghorseshoe <- brm(
   ),
   data = dt,
   chains = 4, iter = 2000, warmup = 1000,
+  init = 0, seed = 1239,
   file = 'project/fits/brmtest_mv_miss_reghorseshoe_widedata'
 )
