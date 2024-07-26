@@ -1,0 +1,61 @@
+---
+title: "Update on trait-microbiome mismatch modeling"
+format: 
+  revealjs:
+    embed-resources: true
+    transition: slide
+engine: knitr
+---
+
+## Missing data model
+
+- We can consider this to be a pathological missing data situation
+- Any individuals missing $X$ (microbiome) are missing $y$ (trait), and vice versa
+- But we can still estimate random intercepts for each mother plant, for each one
+- Then model the relationship between $X$ and $y$ at the offspring level
+- Bayesian approach imputes the missing data as parameters in the model
+
+## Simulation approach
+
+- Simulate maternal microbiome with a multivariate normal distribution
+  + $n_m$: number of mothers
+  + $n_o$: number of offspring per mother
+  + $n_t$: number of taxa
+  + $\mathbf{X}_m \sim \text{MVNormal}(0, \mathbf{I}_{n_t})$
+  
+## Simulation approach 2
+
+- Simulate offspring microbiome again with a multivariate normal distribution
+- Use the maternal means $\mathbf{X}_m$ we simulated in the previous step, and the covariance matrix $\boldsymbol\Sigma_m$ of the simulated maternal means
+- For each mother $i$ her offspring microbiome is:
+  + $\mathbf{X}_{oi} \sim \text{MVNormal}(\mathbf{X}_{mi}, \boldsymbol\Sigma_m)$
+  
+## Simulation approach 2
+
+- Assign only a few nonzero effects of taxa on trait. The rest are 0.
+  + $\boldsymbol\beta = [20, 10, -10, 0, 0, 0, ...]$
+- Use these, with some normally distributed random noise added, to get the offspring trait means
+- For each mother $i$ her offspring trait values are:
+  + $\mathbf{y}_i \sim \text{Normal}(\mathbf{X}_{oi}\boldsymbol\beta, 1)$
+  
+## Fit the model to the full data
+
+- Random maternal intercepts for microbiome, random maternal intercepts for trait
+- Trait has fixed effects for all microbiome taxa (no interaction effects or other covariates)
+- Use regularized horseshoe priors which can handle very wide data
+- I will write the formal statistical notation for this soon
+- Used `brms` so I did not have to manually write out the full Stan code!
+
+## Fit the model with missing data
+
+- Then delete half the offspring microbiome data, and delete the trait data for the other half of the offspring
+- Now fit the model again, modeling missing values in both microbiome and trait
+- See if we get similar answers with and without the missing data
+
+## Current progress
+
+- This worked fine for univariate X
+- Then it worked fine for multivariate X, with 5 taxa only
+- Currently scaling up to 200 taxa, 10 mothers, 10 offspring per mother
+- Made a mistake in the simulation so I am refitting the model
+- Only takes 2 or 3 hours to fit at that scale

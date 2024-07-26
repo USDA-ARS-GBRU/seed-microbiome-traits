@@ -19,7 +19,7 @@ sigma_maternal <- cov(X_maternal)
 # Coefficients indicating which taxa predict the outcome.
 # We will not include any interaction effect.
 # Only include a few taxa with a nonzero effect.
-beta <- c(20, 10, -10, rep(0, n_taxa-3))
+beta <- c(50, 10, -50, rep(0, n_taxa-3))
 
 y_maternal <- 0 + X_maternal %*% beta + rnorm(n_mothers, 0, 1)
 
@@ -75,7 +75,7 @@ modmv_nomiss_reghorseshoe <- brm(
     prior(horseshoe(df = 3, df_global = 1, scale_slab = 2, df_slab = 4, par_ratio = 0.1), class = b, resp = y) 
   ),
   data = dt,
-  chains = 4, iter = 2000, warmup = 1000,
+  chains = 4, iter = 4500, warmup = 2000,
   init = 0, seed = 1240,
   file = 'project/fits/brmtest_mv_nomiss_reghorseshoe_widedata'
 )
@@ -105,7 +105,7 @@ modmv_miss_reghorseshoe <- brm(
     prior(horseshoe(df = 3, df_global = 1, scale_slab = 2, df_slab = 4, par_ratio = 0.1), class = b, resp = ymiss)
   ),
   data = dt,
-  chains = 4, iter = 2000, warmup = 1000,
+  chains = 4, iter = 4500, warmup = 2000,
   init = 0, seed = 1239,
   file = 'project/fits/brmtest_mv_miss_reghorseshoe_widedata'
 )
