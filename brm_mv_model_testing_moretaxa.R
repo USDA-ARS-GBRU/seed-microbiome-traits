@@ -62,8 +62,8 @@ sigma_X_priors <- lapply(1:n_taxa, function(i) prior_string('gamma(1, 1)', class
 sigma_X_priors <- do.call(c, sigma_X_priors)
 
 # Also construct formula programmatically.
-X_formula <- paste0('mvbind(', paste(paste0('X',1:n_taxa), collapse = ','), ') ~ (1|p|maternal_id)')
-y_formula <- paste0('y ~ ', paste(paste0('X',1:n_taxa), collapse = '+'), ' + (1|maternal_id)')
+X_formula <- paste0('mvbind(', paste(paste0('X',1:n_taxa), collapse = ','), ') ~ (1||maternal_id)')
+y_formula <- paste0('y ~ ', paste(paste0('X',1:n_taxa), collapse = '+'), ' + (1||maternal_id)')
 
 modmv_nomiss_reghorseshoe <- brm(
   bf(X_formula) + bf(y_formula) + set_rescor(FALSE),
@@ -72,7 +72,7 @@ modmv_nomiss_reghorseshoe <- brm(
     sigma_X_priors,
     prior(gamma(1, 1), class = sd, resp = y),
     prior(gamma(1, 1), class = sigma, resp = y),
-    prior(horseshoe(df = 1, df_global = 1, scale_slab = 2, df_slab = 4, par_ratio = 0.1), class = b, resp = y) 
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 2, df_slab = 4, par_ratio = 0.01), class = b, resp = y) 
   ),
   data = dt,
   chains = 4, iter = 4500, warmup = 2000,
@@ -92,8 +92,8 @@ sigma_Xmiss_priors <- lapply(1:n_taxa, function(i) prior_string('gamma(1, 1)', c
 sigma_Xmiss_priors <- do.call(c, sigma_Xmiss_priors)
 
 # Also construct formula programmatically.
-Xmiss_formula <- paste0('mvbind(', paste(paste0('Xmiss', 1:n_taxa), collapse = ','), ') | mi() ~ (1|p|maternal_id)')
-ymiss_formula <- paste0('ymiss | mi() ~ ', paste(paste0('mi(Xmiss', 1:n_taxa, ')'), collapse = '+'), ' + (1|maternal_id)')
+Xmiss_formula <- paste0('mvbind(', paste(paste0('Xmiss', 1:n_taxa), collapse = ','), ') | mi() ~ (1||maternal_id)')
+ymiss_formula <- paste0('ymiss | mi() ~ ', paste(paste0('mi(Xmiss', 1:n_taxa, ')'), collapse = '+'), ' + (1||maternal_id)')
 
 modmv_miss_reghorseshoe <- brm(
   bf(Xmiss_formula) + bf(ymiss_formula) + set_rescor(FALSE),
@@ -102,7 +102,7 @@ modmv_miss_reghorseshoe <- brm(
     sigma_Xmiss_priors,
     prior(gamma(1, 1), class = sd, resp = ymiss),
     prior(gamma(1, 1), class = sigma, resp = ymiss),
-    prior(horseshoe(df = 1, df_global = 1, scale_slab = 2, df_slab = 4, par_ratio = 0.1), class = b, resp = ymiss)
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 2, df_slab = 4, par_ratio = 0.01), class = b, resp = ymiss)
   ),
   data = dt,
   chains = 4, iter = 4500, warmup = 2000,
