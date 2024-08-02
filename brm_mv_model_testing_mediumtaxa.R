@@ -1,5 +1,6 @@
 # Simulate multivariate normal data in two levels: maternal taxa abundance means are MVN, 
 # then offspring taxa abundance means are MVN from that.
+# This uses an intermediate number of taxa for local testing.
 
 library(mvtnorm)
 library(brms)
@@ -8,7 +9,7 @@ options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
 
 # Increase number of taxa
 n_mothers <- 10
-n_taxa <- 200
+n_taxa <- 50
 offspring_per_mother <- 10 # 5 will be retained for traits, 5 for microbiome
 
 set.seed(1)
@@ -77,7 +78,7 @@ modmv_nomiss_reghorseshoe <- brm(
   data = dt,
   chains = 4, iter = 4500, warmup = 2000,
   init = 0, seed = 1240,
-  file = 'project/fits/brmtest_mv_nomiss_reghorseshoe_widedata'
+  file = 'project/fits/brmtest_mv_nomiss_reghorseshoe_midtaxa'
 )
 
 
@@ -107,5 +108,5 @@ modmv_miss_reghorseshoe <- brm(
   data = dt,
   chains = 4, iter = 4500, warmup = 2000,
   init = 0, seed = 1239,
-  file = 'project/fits/brmtest_mv_miss_reghorseshoe_widedata'
+  file = 'project/fits/brmtest_mv_miss_reghorseshoe_midtaxa'
 )
