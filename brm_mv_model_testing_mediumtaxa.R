@@ -8,7 +8,7 @@ library(brms)
 options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
 
 # Increase number of taxa
-n_mothers <- 10
+n_mothers <- 20
 n_taxa <- 50
 offspring_per_mother <- 10 # 5 will be retained for traits, 5 for microbiome
 
@@ -73,7 +73,7 @@ modmv_nomiss_reghorseshoe <- brm(
     sigma_X_priors,
     prior(gamma(1, 1), class = sd, resp = y),
     prior(gamma(1, 1), class = sigma, resp = y),
-    prior(horseshoe(df = 1, df_global = 1, scale_slab = 10, df_slab = 4, par_ratio = 3/(n_taxa-3)), class = b, resp = y) 
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 20, df_slab = 4, par_ratio = 3/(n_taxa-3)), class = b, resp = y) 
   ),
   data = dt,
   chains = 4, iter = 4500, warmup = 2000,
@@ -103,7 +103,7 @@ modmv_miss_reghorseshoe <- brm(
     sigma_Xmiss_priors,
     prior(gamma(1, 1), class = sd, resp = ymiss),
     prior(gamma(1, 1), class = sigma, resp = ymiss),
-    prior(horseshoe(df = 1, df_global = 1, scale_slab = 10, df_slab = 4, par_ratio = 3/(n_taxa-3)), class = b, resp = ymiss)
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 20, df_slab = 4, par_ratio = 3/(n_taxa-3)), class = b, resp = ymiss)
   ),
   data = dt,
   chains = 4, iter = 4500, warmup = 2000,
