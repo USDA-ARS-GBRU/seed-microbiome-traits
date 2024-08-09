@@ -2,7 +2,7 @@
 #SBATCH --job-name=mvmiss
 #SBATCH --ntasks=4
 #SBATCH --nodes=1
-#SBATCH --mem=8gb
+#SBATCH --mem=32gb
 #SBATCH --partition=short
 #SBATCH --time=2-00:00:00
 
