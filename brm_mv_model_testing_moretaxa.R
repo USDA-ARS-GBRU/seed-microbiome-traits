@@ -118,12 +118,12 @@ modmv_miss_reghorseshoe <- brm(
     sigma_Xmiss_priors,
     prior(gamma(1, 1), class = sd, resp = ymiss),
     prior(gamma(1, 1), class = sigma, resp = ymiss),
-    prior(horseshoe(df = 1, scale_global = 1, df_global = 10, scale_slab = 20, df_slab = 10, par_ratio = 0.015), class = b, resp = ymiss)
+    prior(horseshoe(df = 1, scale_global = 1, df_global = 1, scale_slab = 50, df_slab = 4, par_ratio = 0.015), class = b, resp = ymiss)
   ),
   data = dt,
   chains = 4, iter = 4500, warmup = 2000,
   init = 0, seed = 1239,
-  file = 'project/fits/brmtest_mv_miss_reghorseshoe_widedata_priors2'
+  file = 'project/fits/brmtest_mv_miss_reghorseshoe_widedata_priors3'
 )
 
 
@@ -132,4 +132,4 @@ modmv_miss_reghorseshoe <- brm(
 summ_nomiss <- summary(modmv_nomiss_reghorseshoe)
 summ_miss <- summary(modmv_miss_reghorseshoe)
 
-save(summ_nomiss, summ_miss, file = 'project/fits/brmtest_mv_summaries_priors2.RData')
+save(summ_nomiss, summ_miss, file = 'project/fits/brmtest_mv_summaries_priors3.RData')
