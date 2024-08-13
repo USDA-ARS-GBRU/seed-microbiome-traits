@@ -75,9 +75,10 @@ modmv_nomiss_reghorseshoe <- brm(
     prior(horseshoe(df = 1, df_global = 1, scale_slab = 20, df_slab = 4, par_ratio = 3/(n_taxa-3)), class = b, resp = y) 
   ),
   data = dt,
-  chains = 4, iter = 4500, warmup = 2000,
+  chains = 4, iter = 7500, warmup = 5000,
   init = 0, seed = 1240,
-  file = 'project/fits/brmtest_mv_nomiss_reghorseshoe_widedata'
+  control = list(adapt_delta = 0.95),
+  file = 'project/fits/brmtest_mv_nomiss_reghorseshoe_widedata_adapt95'
 )
 
 
@@ -95,22 +96,6 @@ sigma_Xmiss_priors <- do.call(c, sigma_Xmiss_priors)
 Xmiss_formula <- paste0('mvbind(', paste(paste0('Xmiss', 1:n_taxa), collapse = ','), ') | mi() ~ (1||maternal_id)')
 ymiss_formula <- paste0('ymiss | mi() ~ ', paste(paste0('mi(Xmiss', 1:n_taxa, ')'), collapse = '+'), ' + (1||maternal_id)')
 
-# modmv_miss_reghorseshoe <- brm(
-#   bf(Xmiss_formula) + bf(ymiss_formula) + set_rescor(FALSE),
-#   prior = c(
-#     sd_Xmiss_priors,
-#     sigma_Xmiss_priors,
-#     prior(gamma(1, 1), class = sd, resp = ymiss),
-#     prior(gamma(1, 1), class = sigma, resp = ymiss),
-#     prior(horseshoe(df = 1, df_global = 1, scale_slab = 20, df_slab = 4, par_ratio = 3/(n_taxa-3)), class = b, resp = ymiss)
-#   ),
-#   data = dt,
-#   chains = 4, iter = 4500, warmup = 2000,
-#   init = 0, seed = 1239,
-#   file = 'project/fits/brmtest_mv_miss_reghorseshoe_widedata'
-# )
-
-# Try with different priors.
 modmv_miss_reghorseshoe <- brm(
   bf(Xmiss_formula) + bf(ymiss_formula) + set_rescor(FALSE),
   prior = c(
@@ -118,18 +103,18 @@ modmv_miss_reghorseshoe <- brm(
     sigma_Xmiss_priors,
     prior(gamma(1, 1), class = sd, resp = ymiss),
     prior(gamma(1, 1), class = sigma, resp = ymiss),
-    prior(horseshoe(df = 1, scale_global = 1, df_global = 1, scale_slab = 50, df_slab = 4, par_ratio = 0.015), class = b, resp = ymiss)
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 20, df_slab = 4, par_ratio = 3/(n_taxa-3)), class = b, resp = ymiss)
   ),
   data = dt,
-  chains = 4, iter = 4500, warmup = 2000,
+  chains = 4, iter = 7500, warmup = 5000,
   init = 0, seed = 1239,
-  file = 'project/fits/brmtest_mv_miss_reghorseshoe_widedata_priors3'
+  control = list(adapt_delta = 0.95),
+  file = 'project/fits/brmtest_mv_miss_reghorseshoe_widedata_adapt95'
 )
-
 
 # Export summaries to download locally ------------------------------------
 
 summ_nomiss <- summary(modmv_nomiss_reghorseshoe)
 summ_miss <- summary(modmv_miss_reghorseshoe)
 
-save(summ_nomiss, summ_miss, file = 'project/fits/brmtest_mv_summaries_priors3.RData')
+save(summ_nomiss, summ_miss, file = 'project/fits/brmtest_mv_summaries_adapt95.RData')
