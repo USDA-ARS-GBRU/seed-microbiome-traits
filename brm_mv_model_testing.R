@@ -22,18 +22,18 @@ beta <- c(5, -5, 0, 0, 0)
 
 y_maternal <- 10 + X_maternal %*% beta + rnorm(n_mothers, 0, 1)
 
-# To get offspring microbiome, take mvnorm draws from the mean vector for each mother (rows of X_maternal)
-# using the same covariance matrix every time.
-
+# To get offspring microbiome, take multivariate normal draws from the mean vector for each mother (rows of X_maternal)
 X_offspring <- apply(X_maternal, 1, function(Xi) rmvnorm(offspring_per_mother, mean = Xi, sigma = sigma_maternal), simplify = FALSE)
-y_offspring <- rnorm(offspring_per_mother * n_mothers, mean = rep(y_maternal, offspring_per_mother), sd = 1)
+
+# Use regression coefficients (beta) to get value for offspring trait, plus noise
+y_offspring <- lapply(X_offspring, function(Xoi) Xoi %*% beta + rnorm(offspring_per_mother, 0, 1))
 
 # Combine together
 dt <- data.frame(
   maternal_id = factor(rep(1:n_mothers, each = offspring_per_mother)),
   offspring_id = 1:offspring_per_mother,
   do.call(rbind, X_offspring),
-  y = y_offspring
+  y = do.call(c, y_offspring)
 )
 
 # Within each mother, set half of the values to be missing for x, and the other half for y.
@@ -55,13 +55,13 @@ dt$ymiss <- ifelse(dt$offspring_id %in% 1:(offspring_per_mother/2), NA, dt$y)
 # Interactions between taxa aren't included.
 
 get_prior(
-  bf(mvbind(X1, X2, X3, X4, X5) ~ (1|p|maternal_id)) + bf(y ~ X1 + X2 + X3 + X4 + X5 + (1|maternal_id)) + set_rescor(TRUE),
+  bf(mvbind(X1, X2, X3, X4, X5) ~ (1||maternal_id)) + bf(y ~ X1 + X2 + X3 + X4 + X5 + (1||maternal_id)) + set_rescor(FALSE),
   data=dt
 )
 
 # First try without regularization prior.
 modmv_nomiss <- brm(
-  bf(mvbind(X1, X2, X3, X4, X5) ~ (1|p|maternal_id)) + bf(y ~ X1 + X2 + X3 + X4 + X5 + (1|maternal_id)) + set_rescor(TRUE),
+  bf(mvbind(X1, X2, X3, X4, X5) ~ (1||maternal_id)) + bf(y ~ X1 + X2 + X3 + X4 + X5 + (1||maternal_id)) + set_rescor(FALSE),
   prior = c(
     prior(gamma(1, 1), class = sd, resp = X1), 
     prior(gamma(1, 1), class = sd, resp = X2), 
@@ -83,9 +83,8 @@ modmv_nomiss <- brm(
 )
 
 # Second try, with regularization prior
-# Regularizes "too strongly" but I think that may be OK as we are using a very small number of taxa.
 modmv_nomiss_reghorseshoe <- brm(
-  bf(mvbind(X1, X2, X3, X4, X5) ~ (1|p|maternal_id)) + bf(y ~ X1 + X2 + X3 + X4 + X5 + (1|maternal_id)) + set_rescor(TRUE),
+  bf(mvbind(X1, X2, X3, X4, X5) ~ (1||maternal_id)) + bf(y ~ X1 + X2 + X3 + X4 + X5 + (1||maternal_id)) + set_rescor(FALSE),
   prior = c(
     prior(gamma(1, 1), class = sd, resp = X1), 
     prior(gamma(1, 1), class = sd, resp = X2), 
@@ -99,7 +98,7 @@ modmv_nomiss_reghorseshoe <- brm(
     prior(gamma(1, 1), class = sigma, resp = X4), 
     prior(gamma(1, 1), class = sigma, resp = X5), 
     prior(gamma(1, 1), class = sigma, resp = y),
-    prior(horseshoe(df = 3, df_global = 1, scale_slab = 2, df_slab = 4, par_ratio = 2/3), class = b, resp = y) # Only y carries any fixed effects. 
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 20, df_slab = 4, par_ratio = 2/3), class = b, resp = y) # Only y carries any fixed effects. 
     # We are setting par_ratio to 2/3 because we "know" that is the ratio of nonzero to zero we are going for. Otherwise default values are used.
   ),
   data = dt,
@@ -135,7 +134,7 @@ modmv_miss <- brm(
 
 # With regularized horseshoe prior on fixed effects.
 modmv_miss_reghorseshoe <- brm(
-  bf(mvbind(Xmiss1, Xmiss2, Xmiss3, Xmiss4, Xmiss5) | mi() ~ (1|p|maternal_id)) + bf(ymiss | mi() ~ mi(Xmiss1) + mi(Xmiss2) + mi(Xmiss3) + mi(Xmiss4) + mi(Xmiss5) + (1|maternal_id)) + set_rescor(TRUE),
+  bf(mvbind(Xmiss1, Xmiss2, Xmiss3, Xmiss4, Xmiss5) | mi() ~ (1||maternal_id)) + bf(ymiss | mi() ~ mi(Xmiss1) + mi(Xmiss2) + mi(Xmiss3) + mi(Xmiss4) + mi(Xmiss5) + (1||maternal_id)) + set_rescor(FALSE),
   prior = c(
     prior(gamma(1, 1), class = sd, resp = Xmiss1), 
     prior(gamma(1, 1), class = sd, resp = Xmiss2), 
@@ -149,7 +148,7 @@ modmv_miss_reghorseshoe <- brm(
     prior(gamma(1, 1), class = sigma, resp = Xmiss4), 
     prior(gamma(1, 1), class = sigma, resp = Xmiss5), 
     prior(gamma(1, 1), class = sigma, resp = ymiss),
-    prior(horseshoe(df = 3, df_global = 1, scale_slab = 2, df_slab = 4, par_ratio = 2/3), class = b, resp = ymiss)
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 20, df_slab = 4, par_ratio = 2/3), class = b, resp = ymiss)
   ),
   data = dt,
   chains = 4, iter = 2000, warmup = 1000,
