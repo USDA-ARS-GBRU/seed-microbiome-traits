@@ -154,3 +154,36 @@ modmv_miss_reghorseshoe <- brm(
   chains = 4, iter = 2000, warmup = 1000,
   file = 'project/fits/brmtest_mv_miss_reghorseshoe'
 )
+
+### Attempt to fit the missing data model with no missing data.
+### This results in the same model as the one fit to the full data so we do not have to worry about two separate model specifications, just change the data.
+modmv_missfull_reghorseshoe <- brm(
+  bf(mvbind(X1, X2, X3, X4, X5) | mi() ~ (1||maternal_id)) + bf(y | mi() ~ mi(X1) + mi(X2) + mi(X3) + mi(X4) + mi(X5) + (1||maternal_id)) + set_rescor(FALSE),
+  prior = c(
+    prior(gamma(1, 1), class = sd, resp = X1), 
+    prior(gamma(1, 1), class = sd, resp = X2), 
+    prior(gamma(1, 1), class = sd, resp = X3), 
+    prior(gamma(1, 1), class = sd, resp = X4), 
+    prior(gamma(1, 1), class = sd, resp = X5), 
+    prior(gamma(1, 1), class = sd, resp = y),
+    prior(gamma(1, 1), class = sigma, resp = X1), 
+    prior(gamma(1, 1), class = sigma, resp = X2), 
+    prior(gamma(1, 1), class = sigma, resp = X3), 
+    prior(gamma(1, 1), class = sigma, resp = X4), 
+    prior(gamma(1, 1), class = sigma, resp = X5), 
+    prior(gamma(1, 1), class = sigma, resp = y),
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 20, df_slab = 4, par_ratio = 2/3), class = b, resp = y)
+  ),
+  data = dt,
+  chains = 4, iter = 2000, warmup = 1000,
+  file = 'project/fits/brmtest_mv_missmodelfulldata_reghorseshoe'
+)
+
+
+# Export stan code
+stancode_nomiss <- make_stancode(modmv_nomiss_reghorseshoe)
+write(stancode_nomiss, file = 'project/stancode/nomiss_horseshoe_5taxa.stan')
+stancode_miss <- make_stancode(modmv_miss_reghorseshoe)
+write(stancode_miss, file = 'project/stancode/miss_horseshoe_5taxa.stan')
+
+standata_miss <- make_standata(modmv_miss_reghorseshoe)
