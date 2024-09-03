@@ -139,18 +139,15 @@ model {
 	
     // initialize linear predictor terms
 	// FIXME this is as far as I got.
-    vector[N] mu_Xmiss1 = rep_vector(0.0, N);
-    vector[N] mu_Xmiss2 = rep_vector(0.0, N);
-    vector[N] mu_Xmiss3 = rep_vector(0.0, N);
-    vector[N] mu_Xmiss4 = rep_vector(0.0, N);
-    vector[N] mu_Xmiss5 = rep_vector(0.0, N);
-    vector[N] mu_ymiss = rep_vector(0.0, N);
-    Yl_Xmiss1[Jmi_X] = Ymi_Xmiss1;
-    Yl_Xmiss2[Jmi_X] = Ymi_Xmiss2;
-    Yl_Xmiss3[Jmi_X] = Ymi_Xmiss3;
-    Yl_Xmiss4[Jmi_X] = Ymi_Xmiss4;
-    Yl_Xmiss5[Jmi_X] = Ymi_Xmiss5;
-    Yl_ymiss[Jmi_y] = Ymi_ymiss;
+	array[Ntaxa] vector[N] mu_X;
+	vector[N] mu_y = rep_vector(0.0, N);
+	
+	for (taxon in 1:N_taxa) {
+		mu_X[taxon] = rep_vector(0.0, N);
+		Xl[taxon][Jmi_X] = Xmi[taxon];
+	}	
+	
+    Yl[Jmi_Y] = Ymi;
     mu_Xmiss1 += Intercept_Xmiss;
     mu_Xmiss2 += Intercept_Xmiss;
     mu_Xmiss3 += Intercept_Xmiss;
