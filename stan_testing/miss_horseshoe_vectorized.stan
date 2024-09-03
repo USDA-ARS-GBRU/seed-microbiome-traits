@@ -1,6 +1,6 @@
 // Original model generated with brms 2.21.0
-// Modified by QDR to constrain each of the X variables to have the same standard deviation
-// Also if possible vectorize the code which currently has separate lines for each X variable
+// Modified by QDR to constrain each of the X variables to have the same standard deviation and the same intercept
+// Where brms had separate lines for each X variable, convert to arrays and loops so the code is scalable to any number of taxa
 functions {
   /* Efficient computation of the horseshoe scale parameters
    * see Appendix C.1 in https://projecteuclid.org/euclid.ejs/1513306866
@@ -138,48 +138,43 @@ model {
     vector[N] Yl = Y;
 	
     // initialize linear predictor terms
-	// FIXME this is as far as I got.
 	array[Ntaxa] vector[N] mu_X;
-	vector[N] mu_y = rep_vector(0.0, N);
+	vector[N] mu_Y = rep_vector(0.0, N);
 	
 	for (taxon in 1:N_taxa) {
 		mu_X[taxon] = rep_vector(0.0, N);
 		Xl[taxon][Jmi_X] = Xmi[taxon];
+		mu_X[taxon] += Intercept_X;
 	}	
 	
     Yl[Jmi_Y] = Ymi;
-    mu_Xmiss1 += Intercept_Xmiss;
-    mu_Xmiss2 += Intercept_Xmiss;
-    mu_Xmiss3 += Intercept_Xmiss;
-    mu_Xmiss4 += Intercept_Xmiss;
-    mu_Xmiss5 += Intercept_Xmiss;
-    mu_ymiss += Intercept_ymiss;
+    mu_Y += Intercept_Y;
+	
     for (n in 1:N) {
       // add more terms to the linear predictor
-      mu_Xmiss1[n] += r_1_Xmiss1_1[J[n]] * Z_1_Xmiss1_1[n];
-	  mu_Xmiss2[n] += r_2_Xmiss2_1[J[n]] * Z_2_Xmiss2_1[n];
-	  mu_Xmiss3[n] += r_3_Xmiss3_1[J[n]] * Z_3_Xmiss3_1[n];
-	  mu_Xmiss4[n] += r_4_Xmiss4_1[J[n]] * Z_4_Xmiss4_1[n];
-	  mu_Xmiss5[n] += r_5_Xmiss5_1[J[n]] * Z_5_Xmiss5_1[n];
+	  for (taxon in 1:N_taxa) {
+		mu_X[taxon][n] += r_X[taxon][J[n]] * Z_X[taxon][n];
+		mu_Y[n] += (bsp_y[taxon]) * Yl[n];
+	  }
 
-      mu_ymiss[n] += (bsp_ymiss[1]) * Yl_Xmiss1[n] + (bsp_ymiss[2]) * Yl_Xmiss2[n] + (bsp_ymiss[3]) * Yl_Xmiss3[n] + (bsp_ymiss[4]) * Yl_Xmiss4[n] + (bsp_ymiss[5]) * Yl_Xmiss5[n] + r_6_ymiss_1[J_6_ymiss[n]] * Z_6_ymiss_1[n];
+      mu_Y[n] += r_Y[J[n]] * Z_Y[n];
     }
-    target += normal_lpdf(Yl_Xmiss1 | mu_Xmiss1, sigma_Xmiss);
-    target += normal_lpdf(Yl_Xmiss2 | mu_Xmiss2, sigma_Xmiss);
-    target += normal_lpdf(Yl_Xmiss3 | mu_Xmiss3, sigma_Xmiss);
-    target += normal_lpdf(Yl_Xmiss4 | mu_Xmiss4, sigma_Xmiss);
-    target += normal_lpdf(Yl_Xmiss5 | mu_Xmiss5, sigma_Xmiss);
-    target += normal_lpdf(Yl_ymiss | mu_ymiss, sigma_ymiss);
+	
+	for (taxon in 1:N_taxa) {
+		target += normal_lpdf(Xl[taxon] | mu_X[taxon], sigma_X);
+	}
+	
+    target += normal_lpdf(Yl | mu_Y, sigma_Y);
   }
+  
   // priors including constants
   target += lprior;
-  target += std_normal_lpdf(zbsp_ymiss);
-  target += student_t_lpdf(hs_local_ymiss | hs_df_ymiss, 0, 1)
-    - rows(hs_local_ymiss) * log(0.5);
-  target += std_normal_lpdf(z_1[1]);
-  target += std_normal_lpdf(z_2[1]);
-  target += std_normal_lpdf(z_3[1]);
-  target += std_normal_lpdf(z_4[1]);
-  target += std_normal_lpdf(z_5[1]);
-  target += std_normal_lpdf(z_y[1]);
+  target += std_normal_lpdf(zbsp_Y);
+  target += student_t_lpdf(hs_local | hs_df, 0, 1) - rows(hs_local) * log(0.5);
+  
+  for (taxon in 1:N_taxa) {
+	target += std_normal_lpdf(Z_X[taxon][1]);
+  }
+  
+  target += std_normal_lpdf(Z_Y[1]);
 }
