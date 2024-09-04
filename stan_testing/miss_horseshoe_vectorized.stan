@@ -36,7 +36,7 @@ data {
   int<lower=0> Nmi_X;                   // number of missing X (CONSTRAINED TO BE THE SAME FOR ALL X)
   array[Nmi_X] int<lower=1> Jmi_X;      // positions of missings (CONSTRAINED TO BE THE SAME FOR ALL X)
   
-  array[N] vector[N_taxa] X;                   // X (microbiome array), which may contain missing values.
+  array[N_taxa] vector[N] X;                   // X (microbiome array), which may contain missing values.
   
   vector[N] Y;                          // Y (trait), response variable
   int<lower=0> Nmi_Y;                   // number of missing Y
@@ -51,6 +51,9 @@ data {
   real<lower=0> hs_df_slab;       // slab degrees of freedom
   real<lower=0> hs_scale_global;  // global prior scale
   real<lower=0> hs_scale_slab;    // slab prior scale
+  
+  real<lower=0> prior_sd_Intercept_X;    // SD of Student t prior on X intercept
+  real<lower=0> prior_sd_Intercept_Y;    // SD of Student t prior on Y intercept
   
   int<lower=1> N_grps;            // number of grouping levels (CONSTRAINED TO BE THE SAME FOR ALL X AND Y)
   array[N] int<lower=1> J;        // grouping indicator per observation (CONSTRAINED TO BE THE SAME FOR ALL X AND Y)
@@ -69,12 +72,12 @@ transformed data {
 }
 
 parameters {
-  array[Nmi_X] vector[N_taxa] Xmi;  // Array of estimated missing values for microbiome
+  array[N_taxa] vector[Nmi_X] Xmi;  // Array of estimated missing values for microbiome
 
   real Intercept_X;  // temporary intercept for centered predictors (CONSTRAINED TO BE SAME FOR ALL X)
   real<lower=0> sigma_X;  // dispersion parameter (CONSTRAINED TO BE SAME FOR ALL X)
 
-  vector[Nmi_ymiss] Ymi;  // estimated missing values for trait
+  vector[Nmi_Y] Ymi;  // estimated missing values for trait
   real Intercept_Y;  // temporary intercept for centered predictors
   vector[Ksp_Y] zbsp_Y;  // unscaled coefficients
   
@@ -85,11 +88,11 @@ parameters {
   
   real<lower=0> sigma_Y;    // dispersion parameter for response variable y
   
-  vector<lower=0>[1] sd_X;  // group-level standard deviations (CONSTRAINED TO BE SAME FOR ALL X)
-    array[N_taxa] vector[N_grps] z; // Standardized group-level effects (random effects for microbiome array, X)
+  real<lower=0> sd_X;  // group-level standard deviations (CONSTRAINED TO BE SAME FOR ALL X)
+  array[N_taxa] vector[N_grps] z; // Standardized group-level effects (random effects for microbiome array, X)
 
   vector<lower=0>[1] sd_Y;  // group-level standard deviations (Y)
-  array[1] vector[N_grps] z_y;  // standardized group-level effects (random effects for trait, Y)
+  vector[N_grps] z_y;  // standardized group-level effects (random effects for trait, Y)
 }
 
 transformed parameters {
@@ -108,17 +111,17 @@ transformed parameters {
   bsp_Y = zbsp_Y .* sdbsp_Y;  // scale coefficients
   
   for (taxon in 1:N_taxa) {
-	r_X[taxon] = (sd_X[1] * (z[taxon][1]));
+	r_X[taxon] = sd_X .* z[taxon];
   }
-  r_Y = (sd_X[1] * (z_y[1]));
+  r_Y = sd_X .* z_y;
   
   // Update lprior (CAN BE DONE AS A LOOP BECAUSE ALL X ARE THE SAME)
   for (taxon in 1:N_taxa) {
-	lprior += student_t_lpdf(Intercept_X | 3, 0, 2.5); // FIXME change SD on this
+	lprior += student_t_lpdf(Intercept_X | 3, 0, prior_sd_Intercept_X);
 	lprior += gamma_lpdf(sigma_X | 1, 1);
   }
 
-  lprior += student_t_lpdf(Intercept_Y | 3, 0, 8.9); // FIXME change SD on this
+  lprior += student_t_lpdf(Intercept_Y | 3, 0, prior_sd_Intercept_Y);
   lprior += student_t_lpdf(hs_global | hs_df_global, 0, hs_scale_global * sigma_Y)
     - 1 * log(0.5);
   lprior += inv_gamma_lpdf(hs_slab | 0.5 * hs_df_slab, 0.5 * hs_df_slab);
@@ -138,7 +141,7 @@ model {
     vector[N] Yl = Y;
 	
     // initialize linear predictor terms
-	array[Ntaxa] vector[N] mu_X;
+	array[N_taxa] vector[N] mu_X;
 	vector[N] mu_Y = rep_vector(0.0, N);
 	
 	for (taxon in 1:N_taxa) {
@@ -154,7 +157,7 @@ model {
       // add more terms to the linear predictor
 	  for (taxon in 1:N_taxa) {
 		mu_X[taxon][n] += r_X[taxon][J[n]] * Z_X[taxon][n];
-		mu_Y[n] += (bsp_y[taxon]) * Yl[n];
+		mu_Y[n] += (bsp_Y[taxon]) * Yl[n];
 	  }
 
       mu_Y[n] += r_Y[J[n]] * Z_Y[n];
@@ -173,8 +176,8 @@ model {
   target += student_t_lpdf(hs_local | hs_df, 0, 1) - rows(hs_local) * log(0.5);
   
   for (taxon in 1:N_taxa) {
-	target += std_normal_lpdf(Z_X[taxon][1]);
+	target += std_normal_lpdf(Z_X[taxon]);
   }
   
-  target += std_normal_lpdf(Z_Y[1]);
+  target += std_normal_lpdf(Z_Y);
 }
