@@ -37,4 +37,4 @@ standata_miss5 <- make_standata_vectorized_horseshoe(dt = dt, x_names = grep('Xm
 
 horsemod <- cmdstan_model('stan_testing/miss_horseshoe_vectorized.stan')
 
-fit_miss5 <- horsemod$sample(data = standata_miss5, seed = 111, chains = 4, parallel_chains = 4, iter_warmup = 1000, iter_sampling = 1000)
+fit_miss5 <- horsemod$sample(data = standata_miss5, seed = 222, chains = 4, parallel_chains = 4, iter_warmup = 2500, iter_sampling = 2500)

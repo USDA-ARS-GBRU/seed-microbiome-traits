@@ -1,5 +1,6 @@
 # Simulate multivariate normal data in two levels: maternal taxa abundance means are MVN, 
 # then offspring taxa abundance means are MVN from that.
+# Update 2024-09-06: Do not estimate separate intercept for each taxon
 
 library(mvtnorm)
 library(brms)
@@ -62,7 +63,7 @@ sigma_X_priors <- lapply(1:n_taxa, function(i) prior_string('gamma(1, 1)', class
 sigma_X_priors <- do.call(c, sigma_X_priors)
 
 # Also construct formula programmatically.
-X_formula <- paste0('mvbind(', paste(paste0('X',1:n_taxa), collapse = ','), ') ~ (1||maternal_id)')
+X_formula <- paste0('mvbind(', paste(paste0('X',1:n_taxa), collapse = ','), ') ~ 0 + (1||maternal_id)')
 y_formula <- paste0('y ~ ', paste(paste0('X',1:n_taxa), collapse = '+'), ' + (1||maternal_id)')
 
 modmv_nomiss_reghorseshoe <- brm(
@@ -78,7 +79,7 @@ modmv_nomiss_reghorseshoe <- brm(
   chains = 4, iter = 7500, warmup = 5000,
   init = 0, seed = 1240,
   control = list(adapt_delta = 0.95),
-  file = 'project/fits/brmtest_mv_nomiss_reghorseshoe_widedata_adapt95'
+  file = 'project/fits/brmtest_mv_nomiss_reghorseshoe_widedata_noint'
 )
 
 
@@ -93,7 +94,7 @@ sigma_Xmiss_priors <- lapply(1:n_taxa, function(i) prior_string('gamma(1, 1)', c
 sigma_Xmiss_priors <- do.call(c, sigma_Xmiss_priors)
 
 # Also construct formula programmatically.
-Xmiss_formula <- paste0('mvbind(', paste(paste0('Xmiss', 1:n_taxa), collapse = ','), ') | mi() ~ (1||maternal_id)')
+Xmiss_formula <- paste0('mvbind(', paste(paste0('Xmiss', 1:n_taxa), collapse = ','), ') | mi() ~ 0 + (1||maternal_id)')
 ymiss_formula <- paste0('ymiss | mi() ~ ', paste(paste0('mi(Xmiss', 1:n_taxa, ')'), collapse = '+'), ' + (1||maternal_id)')
 
 modmv_miss_reghorseshoe <- brm(
@@ -109,7 +110,7 @@ modmv_miss_reghorseshoe <- brm(
   chains = 4, iter = 7500, warmup = 5000,
   init = 0, seed = 1239,
   control = list(adapt_delta = 0.95),
-  file = 'project/fits/brmtest_mv_miss_reghorseshoe_widedata_adapt95'
+  file = 'project/fits/brmtest_mv_miss_reghorseshoe_widedata_noint'
 )
 
 # Export summaries to download locally ------------------------------------
@@ -117,4 +118,4 @@ modmv_miss_reghorseshoe <- brm(
 summ_nomiss <- summary(modmv_nomiss_reghorseshoe)
 summ_miss <- summary(modmv_miss_reghorseshoe)
 
-save(summ_nomiss, summ_miss, file = 'project/fits/brmtest_mv_summaries_adapt95.RData')
+save(summ_nomiss, summ_miss, file = 'project/fits/brmtest_mv_summaries_noint.RData')
