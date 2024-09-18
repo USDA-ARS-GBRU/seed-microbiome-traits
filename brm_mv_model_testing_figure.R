@@ -15,11 +15,13 @@ coef_summ <- bind_rows(
 
 pd = position_dodge(width = 0.5)
 coef_summ %>%
-  filter(type == 'slope') %>%
+  filter(type == 'slope', taxon %in% 1:10) %>%
   ggplot(aes(x = taxon, y = Estimate, ymin = `l-95% CI`, ymax = `u-95% CI`, group = model)) +
     geom_errorbar(width = 0, position = pd) +
     geom_point(aes(color = model), position = pd, size = 2) +
     coord_flip() + theme_bw() +
-    scale_x_reverse() +
+    scale_x_reverse(breaks = 1:10) +
     theme(legend.position = 'inside', legend.position.inside = c(0, 0), legend.justification = c(0, 0), legend.background = element_blank()) +
     see::scale_color_okabeito()
+
+ggsave('project/examplefigtaxa1to10.png', height = 5, width = 6)

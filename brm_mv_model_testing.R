@@ -111,7 +111,7 @@ modmv_nomiss_reghorseshoe <- brm(
 
 # First attempt. No regularization prior is used.
 modmv_miss <- brm(
-  bf(mvbind(Xmiss1, Xmiss2, Xmiss3, Xmiss4, Xmiss5) | mi() ~ (1|p|maternal_id)) + bf(ymiss | mi() ~ mi(Xmiss1) + mi(Xmiss2) + mi(Xmiss3) + mi(Xmiss4) + mi(Xmiss5) + (1|maternal_id)) + set_rescor(TRUE),
+  bf(mvbind(Xmiss1, Xmiss2, Xmiss3, Xmiss4, Xmiss5) | mi() ~ 0 + (1||maternal_id)) + bf(ymiss | mi() ~ mi(Xmiss1) + mi(Xmiss2) + mi(Xmiss3) + mi(Xmiss4) + mi(Xmiss5) + (1||maternal_id)) + set_rescor(FALSE),
   prior = c(
     prior(gamma(1, 1), class = sd, resp = Xmiss1), 
     prior(gamma(1, 1), class = sd, resp = Xmiss2), 
@@ -128,7 +128,7 @@ modmv_miss <- brm(
     prior(normal(0, 5), class = b, resp = ymiss) # Only y carries any fixed effects.
   ),
   data = dt,
-  chains = 4, iter = 2000, warmup = 1000,
+  chains = 4, iter = 4000, warmup = 2000,
   file = 'project/fits/brmtest_mv_miss'
 )
 

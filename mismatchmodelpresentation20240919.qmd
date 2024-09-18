@@ -1,0 +1,123 @@
+---
+title: "Multilevel trait-microbiome mismatch model"
+author: Quentin D. Read
+format: 
+  revealjs:
+    embed-resources: true
+    transition: slide
+engine: knitr
+---
+
+
+## The problem
+
+- We have maternal plants from different populations
+- We want to measure the association between seedling traits and seed microbiome in their offspring
+  + And whether this association is different by population but that's just an extra wrinkle
+
+:::: {.columns}
+
+::: {.column}
+
+![](https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Flag_of_Afghanistan_%282013%E2%80%932021%29.svg/800px-Flag_of_Afghanistan_%282013%E2%80%932021%29.svg.png)
+
+:::
+
+::: {.column}
+
+![](https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/Flag_of_Turkey.svg/800px-Flag_of_Turkey.svg.png)
+
+:::
+
+::::
+
+
+
+## The problem
+
+- But it is not possible to observe seed microbiome and seedling traits for the same seed
+- The seed can either be germinated to measure traits, or destroyed to measure microbiome, but not both
+
+:::: {.columns}
+
+::: {.column}
+
+![](https://upload.wikimedia.org/wikipedia/commons/thumb/1/10/Eierkarton_10_%28fcm%29.jpg/740px-Eierkarton_10_%28fcm%29.jpg)
+
+:::
+
+::: {.column}
+
+![](https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Fried_Egg_2.jpg/800px-Fried_Egg_2.jpg)
+
+:::
+
+::::
+
+## How to resolve the problem
+
+- We can consider this to be a pathological missing data situation
+- Any individuals missing $X$ (microbiome) are missing $y$ (trait), and vice versa
+- But we can still estimate random intercepts for each mother plant, for each one
+- Then model the relationship between $X$ and $y$ at the offspring level
+- Bayesian approach imputes the missing data as parameters in the model
+
+## Simulate some data
+
+- The real dataset turns out to be a poor one to actually demonstrate the model!
+- Simulate maternal microbiome with a multivariate normal distribution
+  + $n_m$: number of mothers (20)
+  + $n_o$: number of offspring per mother (10)
+  + $n_t$: number of taxa (200)
+  + $\mathbf{X}_m \sim \text{MVNormal}(0, \mathbf{I}_{n_t})$
+  
+## Simulate some data, part 2
+
+- Simulate offspring microbiome, also with a multivariate normal distribution
+- Use the maternal means $\mathbf{X}_m$ we simulated in the previous step, and the covariance matrix $\boldsymbol\Sigma_m$ of the simulated maternal means
+- For each mother $i$ her offspring microbiome is:
+  + $\mathbf{X}_{oi} \sim \text{MVNormal}(\mathbf{X}_{mi}, \boldsymbol\Sigma_m)$
+  
+## Simulate some data, part 3
+
+- Assign only a few nonzero effects of taxa on trait. The rest are 0.
+  + $\boldsymbol\beta = [50, 10, -50, 0, 0, 0, ...]$
+- Use these, with some normally distributed random noise added, to get the offspring trait means
+- For each mother $i$ her offspring trait values are:
+  + $\mathbf{y}_i \sim \text{Normal}(\mathbf{X}_{oi}\boldsymbol\beta, 1)$
+  
+## Description of the model {.smaller}
+
+- Random maternal intercepts for microbiome, random maternal intercepts for trait
+- Covariance between random intercepts for each taxon set to 0
+- Trait has fixed effects for all microbiome taxa (no interaction effects or other covariates)
+- I will write the formal statistical notation for this soon
+
+## Priors
+
+- Use "regularized horseshoe priors" on the fixed effects, which can handle very wide data
+  + Piironen & Vehtari 2017, Electronic Journal of Statistics
+  + https://avehtari.github.io/modelselection/regularizedhorseshoe_slides.pdf
+- Gamma priors (weakly informative) on variance of random effects
+- Missing values follow the same prior distributions as non-missing values
+
+## Fit the model to the data
+
+- Fit the model to the full dataset
+- Then set half the trait data to be missing, and the other half of the microbiome data to be missing, and refit
+- Compare the fixed effect estimates
+
+## Comparison of fixed effects
+
+- Only taxa 1-3 were simulated to have nonzero fixed effect (most of the 200 taxa aren't shown here)
+
+![](project/examplefigtaxa1to10.png)
+
+
+## Future directions
+
+- The model could be extended to multivariate trait outcomes and interactions between taxa, *at least in theory*
+- A major issue is scaling up the model
+  + With 200 taxa, it took several hours to sample the posterior but this will blow up as community size increases
+  + Full Bayesian computation on anything much bigger than that is going to be very tough
+  
