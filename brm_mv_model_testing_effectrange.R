@@ -20,7 +20,7 @@ sigma_maternal <- cov(X_maternal)
 # Coefficients indicating which taxa predict the outcome.
 # We will not include any interaction effect.
 # Only include a few taxa with a nonzero effect.
-beta <- c(50, 40, 30, 20, 10, 5, 2, 1, rep(0, ntaxa - 8))
+beta <- c(50, 40, 30, 20, 10, 5, 2, 1, rep(0, n_taxa - 8))
 
 y_maternal <- 0 + X_maternal %*% beta + rnorm(n_mothers, 0, 1)
 
