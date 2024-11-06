@@ -4,6 +4,7 @@ library(brms)
 library(tidyverse)
 
 load('project/fits/brmtest_mv_summaries.RData')
+#load('project/fits/brm_mv_summaries.RData')
 
 # Combine coefficients into one data table and then parse the parameter name to get only the slopes
 coef_summ <- bind_rows(

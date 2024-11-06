@@ -20,7 +20,7 @@ sigma_maternal <- cov(X_maternal)
 # Coefficients indicating which taxa predict the outcome.
 # We will not include any interaction effect.
 # Only include a few taxa with a nonzero effect.
-beta <- c(50, 40, 30, 20, 10, 5, 2, 1, rep(0, n_taxa - 8))
+beta <- c(50, 20, 10, 5, 2, 1, rep(0, n_taxa - 6))
 
 y_maternal <- 0 + X_maternal %*% beta + rnorm(n_mothers, 0, 1)
 
@@ -73,7 +73,7 @@ modmv_nomiss_reghorseshoe <- brm(
     sigma_X_priors,
     prior(gamma(1, 1), class = sd, resp = y),
     prior(gamma(1, 1), class = sigma, resp = y),
-    prior(horseshoe(df = 1, df_global = 1, scale_slab = 20, df_slab = 4, par_ratio = 8/(n_taxa-8)), class = b, resp = y) 
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 20, df_slab = 4, par_ratio = 6/(n_taxa-6)), class = b, resp = y) 
   ),
   data = dt,
   chains = 4, iter = 7500, warmup = 5000,
@@ -104,7 +104,7 @@ modmv_miss_reghorseshoe <- brm(
     sigma_Xmiss_priors,
     prior(gamma(1, 1), class = sd, resp = ymiss),
     prior(gamma(1, 1), class = sigma, resp = ymiss),
-    prior(horseshoe(df = 1, df_global = 1, scale_slab = 20, df_slab = 4, par_ratio = 8/(n_taxa-8)), class = b, resp = ymiss)
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 20, df_slab = 4, par_ratio = 6/(n_taxa-6)), class = b, resp = ymiss)
   ),
   data = dt,
   chains = 4, iter = 7500, warmup = 5000,
