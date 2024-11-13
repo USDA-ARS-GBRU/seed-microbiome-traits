@@ -8,5 +8,5 @@
 
 cd /home/quentin.read/GitHub/seed-microbiome-traits
 module load r
-Rscript2 brm_mv_model_testing_effectrange.R
+Rscript2 brm_mv_model_testing_simplenoise.R
 
