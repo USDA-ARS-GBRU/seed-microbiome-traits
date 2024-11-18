@@ -2,26 +2,28 @@
 # then offspring taxa abundance means are MVN from that.
 # Update 2024-09-06: Do not estimate separate intercept for each taxon
 # Update 2024-11-13: Instead of using cov(maternal) for sigma of offspring, just use an identity matrix.
+# Update 2024-11-18: Increase df slab, n taxa, and n offspring
 
 library(mvtnorm)
 library(brms)
 
 options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
+today <- Sys.Date()
 
 # Increase number of taxa
 n_mothers <- 20
-n_taxa <- 200
-offspring_per_mother <- 10 # 5 will be retained for traits, 5 for microbiome
-
-set.seed(2)
-
-X_maternal <- rmvnorm(n_mothers, mean = rep(0, n_taxa), sigma = diag(n_taxa))
-sigma_maternal <- cov(X_maternal)
+n_taxa <- 300
+offspring_per_mother <- 20 # 10 will be retained for traits, 10 for microbiome
 
 # Coefficients indicating which taxa predict the outcome.
 # We will not include any interaction effect.
 # Only include a few taxa with a nonzero effect.
 beta <- c(50, 20, 10, 5, 2, 1, rep(0, n_taxa - 6))
+
+set.seed(2)
+
+X_maternal <- rmvnorm(n_mothers, mean = rep(0, n_taxa), sigma = diag(n_taxa))
+sigma_maternal <- cov(X_maternal)
 
 y_maternal <- 0 + X_maternal %*% beta + rnorm(n_mothers, 0, 1)
 
@@ -74,13 +76,13 @@ modmv_nomiss_reghorseshoe <- brm(
     sigma_X_priors,
     prior(gamma(1, 1), class = sd, resp = y),
     prior(gamma(1, 1), class = sigma, resp = y),
-    prior(horseshoe(df = 1, df_global = 1, scale_slab = 50, df_slab = 4, par_ratio = 6/(n_taxa-6)), class = b, resp = y) 
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 50, df_slab = 10, par_ratio = 6/(n_taxa-6)), class = b, resp = y) 
   ),
   data = dt,
   chains = 4, iter = 7500, warmup = 5000,
   init = 0, seed = 1240,
   control = list(adapt_delta = 0.95),
-  file = 'project/fits/brm_mv_nomiss_reghorseshoe_20241113'
+  file = paste0('project/fits/brm_mv_nomiss_reghorseshoe_', today)
 )
 
 
@@ -105,13 +107,13 @@ modmv_miss_reghorseshoe <- brm(
     sigma_Xmiss_priors,
     prior(gamma(1, 1), class = sd, resp = ymiss),
     prior(gamma(1, 1), class = sigma, resp = ymiss),
-    prior(horseshoe(df = 1, df_global = 1, scale_slab = 50, df_slab = 4, par_ratio = 6/(n_taxa-6)), class = b, resp = ymiss)
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 50, df_slab = 10, par_ratio = 6/(n_taxa-6)), class = b, resp = ymiss)
   ),
   data = dt,
   chains = 4, iter = 7500, warmup = 5000,
   init = 0, seed = 1239,
   control = list(adapt_delta = 0.95),
-  file = 'project/fits/brm_mv_miss_reghorseshoe_20241113'
+  file = paste0('project/fits/brm_mv_miss_reghorseshoe_', today)
 )
 
 # Export summaries to download locally ------------------------------------
@@ -119,4 +121,4 @@ modmv_miss_reghorseshoe <- brm(
 summ_nomiss <- summary(modmv_nomiss_reghorseshoe)
 summ_miss <- summary(modmv_miss_reghorseshoe)
 
-save(summ_nomiss, summ_miss, file = 'project/fits/brm_mv_summaries_20241113.RData')
+save(summ_nomiss, summ_miss, file = paste0('project/fits/brm_mv_summaries_', today, '.RData'))
