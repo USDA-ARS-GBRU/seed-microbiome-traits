@@ -76,7 +76,7 @@ modmv_nomiss_reghorseshoe <- brm(
     sigma_X_priors,
     prior(gamma(1, 1), class = sd, resp = y),
     prior(gamma(1, 1), class = sigma, resp = y),
-    prior(horseshoe(df = 1, df_global = 1, scale_slab = 50, df_slab = 10, par_ratio = 6/(n_taxa-6)), class = b, resp = y) 
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 50, df_slab = 10, scale_global = 1, class = b, resp = y) 
   ),
   data = dt,
   chains = 4, iter = 7500, warmup = 5000,
@@ -107,7 +107,7 @@ modmv_miss_reghorseshoe <- brm(
     sigma_Xmiss_priors,
     prior(gamma(1, 1), class = sd, resp = ymiss),
     prior(gamma(1, 1), class = sigma, resp = ymiss),
-    prior(horseshoe(df = 1, df_global = 1, scale_slab = 50, df_slab = 10, par_ratio = 6/(n_taxa-6)), class = b, resp = ymiss)
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 50, df_slab = 10, scale_global = 1, class = b, resp = ymiss)
   ),
   data = dt,
   chains = 4, iter = 7500, warmup = 5000,
