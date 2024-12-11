@@ -3,6 +3,7 @@
 # Update 2024-09-06: Do not estimate separate intercept for each taxon
 # Update 2024-11-13: Instead of using cov(maternal) for sigma of offspring, just use an identity matrix.
 # Update 2024-11-18: Increase df slab, n taxa, and n offspring
+# Update 2024-12-11: Decrease number of taxa
 
 library(mvtnorm)
 library(brms)
@@ -10,9 +11,8 @@ library(brms)
 options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
 today <- Sys.Date()
 
-# Increase number of taxa
 n_mothers <- 20
-n_taxa <- 300
+n_taxa <- 100
 offspring_per_mother <- 20 # 10 will be retained for traits, 10 for microbiome
 
 # Coefficients indicating which taxa predict the outcome.
