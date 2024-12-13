@@ -4,6 +4,7 @@
 # Update 2024-11-13: Instead of using cov(maternal) for sigma of offspring, just use an identity matrix.
 # Update 2024-11-18: Increase df slab, n taxa, and n offspring
 # Update 2024-12-11: Decrease number of taxa
+# Update 2024-12-13: Increase n taxa and increase par ratio
 
 library(mvtnorm)
 library(brms)
@@ -12,7 +13,7 @@ options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
 today <- Sys.Date()
 
 n_mothers <- 20
-n_taxa <- 100
+n_taxa <- 500
 offspring_per_mother <- 20 # 10 will be retained for traits, 10 for microbiome
 
 # Coefficients indicating which taxa predict the outcome.
@@ -76,7 +77,7 @@ modmv_nomiss_reghorseshoe <- brm(
     sigma_X_priors,
     prior(gamma(1, 1), class = sd, resp = y),
     prior(gamma(1, 1), class = sigma, resp = y),
-    prior(horseshoe(df = 1, df_global = 1, scale_slab = 10, df_slab = 10, par_ratio = 6/(n_taxa-6)), class = b, resp = y) 
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 10, df_slab = 10, par_ratio = 0.1, class = b, resp = y) 
   ),
   data = dt,
   chains = 4, iter = 7500, warmup = 5000,
@@ -107,7 +108,7 @@ modmv_miss_reghorseshoe <- brm(
     sigma_Xmiss_priors,
     prior(gamma(1, 1), class = sd, resp = ymiss),
     prior(gamma(1, 1), class = sigma, resp = ymiss),
-    prior(horseshoe(df = 1, df_global = 1, scale_slab = 10, df_slab = 10, par_ratio = 6/(n_taxa-6)), class = b, resp = ymiss)
+    prior(horseshoe(df = 1, df_global = 1, scale_slab = 10, df_slab = 10, par_ratio = 0.1, class = b, resp = ymiss)
   ),
   data = dt,
   chains = 4, iter = 12500, warmup = 10000,
