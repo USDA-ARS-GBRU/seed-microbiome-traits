@@ -5,6 +5,7 @@
 # Update 2024-11-18: Increase df slab, n taxa, and n offspring
 # Update 2024-12-11: Decrease number of taxa
 # Update 2024-12-13: Increase n taxa and increase par ratio
+# Update 2024-12-19: Go back down in number of taxa
 
 library(mvtnorm)
 library(brms)
@@ -13,7 +14,7 @@ options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
 today <- Sys.Date()
 
 n_mothers <- 20
-n_taxa <- 500
+n_taxa <- 100
 offspring_per_mother <- 20 # 10 will be retained for traits, 10 for microbiome
 
 # Coefficients indicating which taxa predict the outcome.
