@@ -8,6 +8,7 @@
 # Update 2024-12-19: Go back down in number of taxa
 # Update 2024-12-27: Increase n mothers
 # Update 2025-01-03: Decrease n mothers but increase offspring per mother
+# Update 2025-01-07: Change n again
 
 library(mvtnorm)
 library(brms)
@@ -15,9 +16,9 @@ library(brms)
 options(mc.cores = 4, brms.backend = 'cmdstanr', brms.file_refit = 'on_change')
 today <- Sys.Date()
 
-n_mothers <- 10
+n_mothers <- 50
 n_taxa <- 100
-offspring_per_mother <- 50 # Half will be retained for traits, half for microbiome
+offspring_per_mother <- 10 # Half will be retained for traits, half for microbiome
 
 # Coefficients indicating which taxa predict the outcome.
 # We will not include any interaction effect.
